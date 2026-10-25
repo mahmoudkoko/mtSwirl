@@ -1,0 +1,15 @@
+# offline resources
+/resources/cromwell
+/resources/docker
+/resources/gatk
+/resources/grch38
+
+# outputs
+/outputs/**
+
+# large objects
+*.jar
+*.tar.gz
+
+# copy trace
+*:Zone.Identifier
