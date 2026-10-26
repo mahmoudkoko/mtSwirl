@@ -1,7 +1,6 @@
 version 1.0
 
-import "LiftoverTools_v2_5_Single.wdl" as LiftoverTools_Single
-import "MongoTasks_v2_5_Single.wdl" as MongoTasks_Single
+import "MongoTasks.wdl" as MongoTasks_Single
 
 workflow ProduceSelfReferenceFiles {
   # Running bcftools consensus when an interval file was used upstream to subset the genome
@@ -105,7 +104,7 @@ workflow ProduceSelfReferenceFiles {
   }
 
   if (compute_numt_coverage) {
-    call CreateSpanIntervalsWithDict as LiftOverNucReference {
+    call MongoTasks_Single.CreateSpanIntervalsWithDict as LiftOverNucReference {
       input:
         input_intervals = nuc_interval_list,
         target_dict = ProduceSelfReference.self_cat_dict,
@@ -114,7 +113,7 @@ workflow ProduceSelfReferenceFiles {
         preemptible_tries = preemptible_tries
     }
 
-    call CreateSpanIntervalsWithDict as LiftOverNucReferenceShifted {
+    call MongoTasks_Single.CreateSpanIntervalsWithDict as LiftOverNucReferenceShifted {
       input:
         input_intervals = nuc_interval_list,
         target_dict = ProduceSelfReference.self_shifted_cat_dict,
@@ -123,7 +122,7 @@ workflow ProduceSelfReferenceFiles {
         preemptible_tries = preemptible_tries
     }
 
-    call LiftoverTools_Single.ChainSwap as SelfToRefNucLiftoverChain {
+    call MongoTasks_Single.ChainSwap as SelfToRefNucLiftoverChain {
       input:
         source_chain = ProduceSelfReference.grch38_to_self_nuc_chain,
         input_source_name = reference_name,
@@ -132,7 +131,7 @@ workflow ProduceSelfReferenceFiles {
         preemptible_tries = preemptible_tries
     }
 
-    call MoveChainToZero {
+    call MongoTasks_Single.MoveChainToZero {
       input:
         source_chain = SelfToRefNucLiftoverChain.chain,
         ref_intervals = nuc_interval_list,
@@ -182,94 +181,5 @@ workflow ProduceSelfReferenceFiles {
     Int nuc_variants_dropped = ProduceSelfReference.nuc_variants_dropped
     Int mtdna_consensus_overlaps = ProduceSelfReference.mtdna_consensus_overlaps
     Int nuc_consensus_overlaps = ProduceSelfReference.nuc_consensus_overlaps
-  }
-}
-
-task CreateSpanIntervalsWithDict {
-  input {
-    File input_intervals
-    File target_dict
-    String intertext
-    String genomes_cloud_docker
-
-    Int? preemptible_tries
-  }
-
-  Float ref_size = size(target_dict, "GB")
-  Int disk_size = ceil(size(input_intervals, "GB")*2 + ref_size)*2 + 10
-  String output_intervals = basename(input_intervals, ".interval_list") + intertext + ".SelfRefLiftover.interval_list"
-
-  command <<<
-    R --vanilla <<CODE
-      intervals <- readLines('~{input_intervals}')
-      intervals <- intervals[grep('^@', intervals, invert=T)]
-      interval_names <- sapply(strsplit(intervals, '\t'),function(x)x[5])
-      new_header <- readLines('~{target_dict}')
-      lens <- sapply(interval_names, function(x)as.numeric(gsub('LN:','',strsplit(new_header[grep(paste0('^@SQ\tSN:',x), new_header)[1]], '\t')[[1]][3])))
-      if(any(is.na(lens))) stop('ERROR: Some NUMT intervals were not found in the mt_andNuc sequence dictionary.')
-      new_intervals <- c(new_header, paste(interval_names, 1, lens, '+', interval_names, sep='\t'))
-      writeLines(new_intervals, '~{output_intervals}')
-    CODE
-  >>>
-
-  output {
-    File lifted_intervals = "~{output_intervals}"
-  }
-
-  runtime {
-    disks: "local-disk " + disk_size + " HDD"
-    memory: "500 MB"
-    docker: genomes_cloud_docker
-    preemptible: select_first([preemptible_tries, 5])
-  }
-}
-
-task MoveChainToZero {
-  input {
-    File source_chain
-    File ref_intervals
-    String genomes_cloud_docker
-
-    Int? preemptible_tries
-  }
-
-  Int disk_size = ceil(size(source_chain, "GB")*2.5)
-  String output_chain = basename(source_chain, ".chain") + ".toZero.chain"
-
-  command <<<
-    R --vanilla <<CODE
-      chain <- readLines('~{source_chain}')
-      intervals <- readLines('~{ref_intervals}')
-      intervals <- intervals[grep('^@', intervals, invert=T)]
-      intervals_split <- strsplit(intervals, '\t')
-      target_names <- sapply(intervals_split, function(x)x[5])
-      names(target_names) <- sapply(intervals_split, function(x)paste0(x[1], ':', as.numeric(x[2])-1, '-', x[3]))
-      to_edit <- grep('^chain', chain)
-      this_sep <- ' '
-      new_headers <- sapply(chain[to_edit], function(x) {
-        this_header <- strsplit(x, this_sep)[[1]]
-        this_search <- paste0(this_header[8], ':', this_header[11], '-', this_header[12])
-        if (!this_search %in% names(target_names)) stop('ERROR: chain file has a segment not in intervals list.')
-        this_name <- target_names[this_search]
-        this_header[c(3, 8)] <- this_name
-        this_header[c(4, 6, 7)] <- as.numeric(this_header[c(4, 6, 7)]) - as.numeric(this_header[6])
-        this_header[c(9, 11, 12)] <- as.numeric(this_header[c(9, 11, 12)]) - as.numeric(this_header[11])
-        return(paste0(this_header, collapse=this_sep))
-      })
-      new_chain <- chain
-      new_chain[to_edit] <- new_headers
-      writeLines(new_chain, '~{output_chain}')
-    CODE
-  >>>
-
-  output {
-    File chain = "~{output_chain}"
-  }
-
-  runtime {
-    disks: "local-disk " + disk_size + " HDD"
-    memory: "1 MB"
-    docker: genomes_cloud_docker
-    preemptible: select_first([preemptible_tries, 5])
   }
 }

@@ -1,6 +1,6 @@
 version 1.0
 
-import "MongoTasks_v2_6_Multi.wdl" as MongoTasks_Multi
+import "MongoTasks.wdl" as MongoTasks_Single
 
 workflow AlignAndCallR1 {
   meta {
@@ -8,9 +8,9 @@ workflow AlignAndCallR1 {
   }
 
   input {
-    Array[File] input_bam
-    Array[File] input_bai
-    Array[String] sample_name
+    File input_bam
+    File input_bai
+    String sample_name
 
     File ref_dict
     File ref_fasta
@@ -26,7 +26,6 @@ workflow AlignAndCallR1 {
     File mt_interval_list
 
     Int mt_mean_coverage
-    Array[Int] mt_mean_coverage_array
 
     Boolean use_haplotype_caller_nucdna
     Int hc_dp_lower_bound
@@ -38,12 +37,12 @@ workflow AlignAndCallR1 {
     Float? vaf_filter_threshold
     Float? f_score_beta
     Boolean compress_output_vcf
-    Array[Float]+? verifyBamID    
-    File JsonTools
+    Float? verifyBamID
 
     # Read length used for optimization only. If this is too small CollectWgsMetrics might fail, but the results are not
     # affected by this number. Default is 151.
     Int? max_read_length
+    File haplocheck_cli
     String haplochecker_docker
 
     #Optional runtime arguments
@@ -55,7 +54,7 @@ workflow AlignAndCallR1 {
   }
 
   if (use_haplotype_caller_nucdna) {
-    call MongoTasks_Multi.MongoHC as CallNucHCIntegrated {
+    call MongoTasks_Single.MongoHC as CallNucHCIntegrated {
       input:
         input_bam = input_bam,
         input_bai = input_bai,
@@ -72,12 +71,11 @@ workflow AlignAndCallR1 {
         hc_dp_lower_bound = hc_dp_lower_bound,
         mem = 4,
         preemptible_tries = preemptible_tries,
-        JsonTools = JsonTools,
         n_cpu = n_cpu
     }
   }
   if (!use_haplotype_caller_nucdna) {
-    call MongoTasks_Multi.MongoNucM2 as CallNucM2Integrated {
+    call MongoTasks_Single.MongoNucM2 as CallNucM2Integrated {
       input:
         input_bam = input_bam,
         input_bai = input_bai,
@@ -89,7 +87,6 @@ workflow AlignAndCallR1 {
         suffix = '.nuc',
         mt_interval_list = nuc_interval_list,
 
-        compress = compress_output_vcf,
         m2_extra_args = select_first([m2_extra_args, ""]),
 
         max_alt_allele_count = 4,
@@ -102,17 +99,15 @@ workflow AlignAndCallR1 {
         gatk_version = gatk_version,
         mem = 4,
         preemptible_tries = preemptible_tries,
-        JsonTools = JsonTools,
         n_cpu = n_cpu
     }
   }
-  
+
   Int M2_mem = if mt_mean_coverage > 25000 then 14 else 7
 
-  call MongoTasks_Multi.MongoRunM2InitialFilterSplit as CallMt {
+  call MongoTasks_Single.MongoRunM2InitialFilterSplit as CallMt {
     input:
-      #sample_name = sample_name,
-      sample_name = select_first([CallNucHCIntegrated.samples, CallNucM2Integrated.samples]),
+      sample_name = sample_name,
       input_bam = input_bam,
       input_bai = input_bai,
       verifyBamID = verifyBamID,
@@ -134,26 +129,25 @@ workflow AlignAndCallR1 {
       m2_extra_args = select_first([m2_extra_args, ""]),
       mem = M2_mem,
       preemptible_tries = preemptible_tries,
-      JsonTools = JsonTools,
       n_cpu = n_cpu
   }
 
-  call GetContamination {
+  call MongoTasks_Single.GetContamination {
     input:
       input_vcf = CallMt.vcf_for_haplochecker,
-      sample_name = CallMt.samples,
-      mean_coverage = mt_mean_coverage_array,
-      JsonTools = JsonTools,
+      sample_name = sample_name,
+      mean_coverage = mt_mean_coverage,
+      haplocheck_cli = haplocheck_cli,
       preemptible_tries = preemptible_tries,
       haplochecker_docker = haplochecker_docker
   }
 
-  call MongoTasks_Multi.MongoM2FilterContaminationSplit as FilterContamination {
+  call MongoTasks_Single.MongoM2FilterContaminationSplit as FilterContamination {
     input:
       raw_vcf = CallMt.filtered_vcf,
       raw_vcf_index = CallMt.filtered_vcf_idx,
       raw_vcf_stats = CallMt.stats,
-      sample_name = GetContamination.samples,
+      sample_name = sample_name,
       hasContamination = GetContamination.hasContamination,
       contamination_major = GetContamination.major_level,
       contamination_minor = GetContamination.minor_level,
@@ -173,151 +167,30 @@ workflow AlignAndCallR1 {
       blacklisted_sites = blacklisted_sites,
       blacklisted_sites_index = blacklisted_sites_index,
       f_score_beta = f_score_beta,
-      JsonTools = JsonTools,
       preemptible_tries = preemptible_tries
   }
 
   output {
-    Array[String] samples = FilterContamination.samples
-    Array[File] out_vcf = FilterContamination.filtered_vcf
-    Array[File] out_vcf_index = FilterContamination.filtered_vcf_idx
-    Array[File] split_vcf = FilterContamination.split_vcf
-    Array[File] split_vcf_index = FilterContamination.split_vcf_index
-    Array[File] nuc_vcf = select_first([CallNucHCIntegrated.full_pass_vcf, CallNucM2Integrated.full_pass_vcf])
-    Array[File] nuc_vcf_index = select_first([CallNucHCIntegrated.full_pass_vcf_index, CallNucM2Integrated.full_pass_vcf_index])
-    Array[File] nuc_vcf_unfiltered = select_first([CallNucHCIntegrated.filtered_vcf, CallNucM2Integrated.filtered_vcf])
-    Array[File] split_nuc_vcf = select_first([CallNucHCIntegrated.split_vcf, CallNucM2Integrated.split_vcf])
-    Array[File] split_nuc_vcf_index = select_first([CallNucHCIntegrated.split_vcf_index, CallNucM2Integrated.split_vcf_index])
-    Array[Int] nuc_variants_pass = select_first([CallNucHCIntegrated.post_filt_vars, CallNucM2Integrated.post_filt_vars])
-    Array[File] input_vcf_for_haplochecker = CallMt.vcf_for_haplochecker
-    Array[File] contamination_metrics = GetContamination.contamination_file
-    Array[String] major_haplogroup = GetContamination.major_hg
-    Array[Float] contamination = FilterContamination.contamination
-    Array[String] hasContamination = GetContamination.hasContamination
-    Array[Float] contamination_major = GetContamination.major_level
-    Array[Float] contamination_minor = GetContamination.minor_level
+    File out_vcf = FilterContamination.filtered_vcf
+    File out_vcf_index = FilterContamination.filtered_vcf_idx
+    File split_vcf = FilterContamination.split_vcf
+    File split_vcf_index = FilterContamination.split_vcf_index
+    File nuc_vcf = select_first([CallNucHCIntegrated.full_pass_vcf, CallNucM2Integrated.full_pass_vcf])
+    File nuc_vcf_index = select_first([CallNucHCIntegrated.full_pass_vcf_index, CallNucM2Integrated.full_pass_vcf_index])
+    File nuc_vcf_unfiltered = select_first([CallNucHCIntegrated.filtered_vcf, CallNucM2Integrated.filtered_vcf])
+    File split_nuc_vcf = select_first([CallNucHCIntegrated.split_vcf, CallNucM2Integrated.split_vcf])
+    File split_nuc_vcf_index = select_first([CallNucHCIntegrated.split_vcf_index, CallNucM2Integrated.split_vcf_index])
+    Int nuc_variants_pass = select_first([CallNucHCIntegrated.post_filt_vars, CallNucM2Integrated.post_filt_vars])
+    File input_vcf_for_haplochecker = CallMt.vcf_for_haplochecker
+    File contamination_metrics = GetContamination.contamination_file
+    String major_haplogroup = GetContamination.major_hg
+    Float contamination = FilterContamination.contamination
+    String hasContamination = GetContamination.hasContamination
+    Float contamination_major = GetContamination.major_level
+    Float contamination_minor = GetContamination.minor_level
   }
 }
 
-task GetContamination {
-  input {
-    Array[File] input_vcf
-    Array[String] sample_name
-    Array[Int] mean_coverage
-    # runtime    
-    File JsonTools
-    Int? preemptible_tries
-    String haplochecker_docker
-  }
-
-  Int disk_size = ceil(size(input_vcf, "GB")) + 20
-  String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
-
-  meta {
-    description: "Uses new Haplochecker to estimate levels of contamination in mitochondria"
-  }
-  parameter_meta {
-    input_vcf: "Filtered and split multi-allelic sites VCF for mitochondria"
-  }
-  command <<<
-  set -e
-
-  mkdir out
-
-  sampleNames=('~{sep="' '" sample_name}')
-  vcfs=('~{sep="' '" input_vcf}')
-  mean_covs=('~{sep="' '" mean_coverage}')
-
-  for i in "~{d}{!sampleNames[@]}"; do
-
-    this_basename=out/"~{d}{sampleNames[i]}"
-    this_mean_cov="~{d}{mean_covs[i]}"
-    this_vcf="~{d}{vcfs[i]}"
-
-    this_vcf_nvar=$(cat "~{d}{this_vcf}" | grep ^chrM | wc -l | sed 's/^ *//g')
-    echo "~{d}{sampleNames[i]} has VCF with ~{d}{this_vcf_nvar} variants for contamination."
-
-    mkdir thisvcf
-    cp "~{d}{this_vcf}" thisvcf
-    PARENT_DIR=thisvcf
-    
-    java -jar /usr/mtdnaserver/haplocheckCLI.jar "~{d}{PARENT_DIR}"
-    rm -rf thisvcf
-
-    sed 's/\"//g' output > output-noquotes
-    cp 'output-noquotes' "~{d}{this_basename}_output_noquotes"
-
-    grep "SampleID" output-noquotes > headers
-    FORMAT_ERROR="Bad contamination file format"
-    if [ `awk '{print $2}' headers` != "Contamination" ]; then
-      echo $FORMAT_ERROR; exit 1
-    fi
-    if [ `awk '{print $6}' headers` != "HgMajor" ]; then
-      echo $FORMAT_ERROR; exit 1
-    fi
-    if [ `awk '{print $8}' headers` != "HgMinor" ]; then
-      echo $FORMAT_ERROR; exit 1
-    fi
-    if [ `awk '{print $14}' headers` != "MeanHetLevelMajor" ]; then
-      echo $FORMAT_ERROR; exit 1
-    fi
-    if [ `awk '{print $15}' headers` != "MeanHetLevelMinor" ]; then
-      echo $FORMAT_ERROR; exit 1
-    fi
-
-    if [ "~{d}{this_mean_cov}" -gt 0 ] && [ "~{d}{this_vcf_nvar}" -gt 0 ]; then
-      grep -v "SampleID" output-noquotes > output-data
-      awk -F "\t" '{print $2}' output-data > "~{d}{this_basename}.contamination.txt"
-      awk -F "\t" '{print $6}' output-data > "~{d}{this_basename}.major_hg.txt"
-      awk -F "\t" '{print $8}' output-data > "~{d}{this_basename}.minor_hg.txt"
-      awk -F "\t" '{print $14}' output-data > "~{d}{this_basename}.mean_het_major.txt"
-      awk -F "\t" '{print $15}' output-data > "~{d}{this_basename}.mean_het_minor.txt"
-    else
-    
-      if [ "~{d}{this_mean_cov}" -eq 0 ]; then
-        echo "Sample ~{d}{sampleNames[i]} has a mean coverage of 0."
-      elif [ "~{d}{this_vcf_nvar}" -eq 0 ]; then
-        echo "Sample ~{d}{sampleNames[i]} has no variants."
-      else
-        echo "Unsupported contamination exception for ~{d}{sampleNames[i]}"; exit 1
-      fi
-      
-      echo "NO" > "~{d}{this_basename}.contamination.txt"
-      echo "NONE" > "~{d}{this_basename}.major_hg.txt"
-      echo "NONE" > "~{d}{this_basename}.minor_hg.txt"
-      echo "0.000" > "~{d}{this_basename}.mean_het_major.txt"
-      echo "0.000" > "~{d}{this_basename}.mean_het_minor.txt"
-    fi
-
-    python ~{JsonTools} \
-    --path out/jsonout.json \
-    --set-float major_level="$(cat ~{d}{this_basename}.mean_het_major.txt)" \
-      minor_level="$(cat ~{d}{this_basename}.mean_het_minor.txt)" \
-    --set samples="~{d}{sampleNames[i]}" \
-      contamination_file="~{d}{this_basename}_output_noquotes" \
-      hasContamination="$(cat ~{d}{this_basename}.contamination.txt)" \
-      major_hg="$(cat ~{d}{this_basename}.major_hg.txt)" \
-      minor_hg="$(cat ~{d}{this_basename}.minor_hg.txt)"
-
-  done
-  >>>
-  runtime {
-    preemptible: select_first([preemptible_tries, 5])
-    memory: "3 GB"
-    disks: "local-disk " + disk_size + " HDD"
-    docker: haplochecker_docker
-  }
-  output {
-    Object obj_out = read_json("out/jsonout.json")
-    Array[String] samples = obj_out.samples
-    Array[File] contamination_file = obj_out.contamination_file
-    Array[String] hasContamination = obj_out.hasContamination
-    Array[String] major_hg = obj_out.major_hg
-    Array[String] minor_hg = obj_out.minor_hg
-    Array[Float] major_level = obj_out.major_level
-    Array[Float] minor_level = obj_out.minor_level
-  }
-}
 
 # task M2 {
   # input {
@@ -363,32 +236,32 @@ task GetContamination {
     # input_bam: "Aligned Bam"
   # }
   # command <<<
-    # set -e
+      # set -e
 
-#     # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
-    # echo "Extra arguments for mutect2: ""~{m2_extra_args}""$cust_interval"
-    # ~{"echo 'Obtaining force calls for specified VCF: '" + force_call_vcf}
+#       # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
+      # echo "Extra arguments for mutect2: ""~{m2_extra_args}""$cust_interval"
+      # ~{"echo 'Obtaining force calls for specified VCF: '" + force_call_vcf}
 
-#     # We need to create these files regardless, even if they stay empty
-    # touch bamout.bam
+#       # We need to create these files regardless, even if they stay empty
+      # touch bamout.bam
 
-#     # Fix for DNANexus weirdness
-    # ~{"gatk IndexFeatureFile -I " + force_call_vcf}
+#       # Fix for DNANexus weirdness
+      # ~{"gatk IndexFeatureFile -I " + force_call_vcf}
 
-#     # gatk --java-options "-Xmx~{command_mem}m" Mutect2 \
-      # -R ~{ref_fasta} \
-      # -I ~{input_bam} \
-      # ~{"-L " + mt_interval_list} \
-      # -O ~{output_vcf} \
-      # ~{true='--bam-output bamout.bam' false='' make_bamout} \
-      # ~{"--genotype-filtered-alleles --alleles " + force_call_vcf} \
-      # ~{m2_extra_args} \
-      # --annotation StrandBiasBySample \
-      # ~{true='' false='--read-filter MateOnSameContigOrNoMappedMateReadFilter' disable_filters} \
-      # ~{true='' false='--read-filter MateUnmappedAndUnmappedReadFilter' disable_filters} \
-      # ~{true='' false='--mitochondria-mode' nucdna} \
-      # --max-reads-per-alignment-start ~{max_reads_per_alignment_start} \
-      # --max-mnp-distance 0
+#       # gatk --java-options "-Xmx~{command_mem}m" Mutect2 \
+        # -R ~{ref_fasta} \
+        # -I ~{input_bam} \
+        # ~{"-L " + mt_interval_list} \
+        # -O ~{output_vcf} \
+        # ~{true='--bam-output bamout.bam' false='' make_bamout} \
+        # ~{"--genotype-filtered-alleles --alleles " + force_call_vcf} \
+        # ~{m2_extra_args} \
+        # --annotation StrandBiasBySample \
+        # ~{true='' false='--read-filter MateOnSameContigOrNoMappedMateReadFilter' disable_filters} \
+        # ~{true='' false='--read-filter MateUnmappedAndUnmappedReadFilter' disable_filters} \
+        # ~{true='' false='--mitochondria-mode' nucdna} \
+        # --max-reads-per-alignment-start ~{max_reads_per_alignment_start} \
+        # --max-mnp-distance 0
   # >>>
   # runtime {
       # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])

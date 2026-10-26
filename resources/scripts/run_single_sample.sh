@@ -3,11 +3,39 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/../.." && pwd)
+hail_conda_prefix="${HAIL_CONDA_PREFIX:-$HOME/miniconda3/envs/hail}"
+mtswirl_conda_prefix="${MTSWIRL_CONDA_PREFIX:-$HOME/miniconda3/envs/mtSwirl}"
+r_conda_prefix="${R_CONDA_PREFIX:-$HOME/miniconda3/envs/R}"
 cromwell_jar="$repo_root/resources/cromwell/cromwell-92.jar"
 config="$repo_root/inputs/config/cromwell-local-single.conf"
-workflow="$repo_root/inputs/wdl/fullMitoPipeline_v2_5_Single.wdl"
+workflow="$repo_root/inputs/wdl/MitoPipeline.wdl"
 inputs="$repo_root/inputs/json/prepopulated_inputs_offline_single.json"
 copy_script="$script_dir/copy_single_sample_outputs.sh"
+
+if [[ ! -x "$hail_conda_prefix/bin/python" ]]; then
+  printf 'Hail Python was not found: %s\n' "$hail_conda_prefix/bin/python" >&2
+  printf 'Set HAIL_CONDA_PREFIX to the Hail Conda environment.\n' >&2
+  exit 1
+fi
+
+if [[ ! -d "$mtswirl_conda_prefix/bin" ]]; then
+  printf 'mtSwirl Conda bin directory was not found: %s\n' "$mtswirl_conda_prefix/bin" >&2
+  printf 'Set MTSWIRL_CONDA_PREFIX to the mtSwirl Conda environment.\n' >&2
+  exit 1
+fi
+
+if [[ ! -x "$r_conda_prefix/bin/Rscript" ]]; then
+  printf 'Rscript was not found: %s\n' "$r_conda_prefix/bin/Rscript" >&2
+  printf 'Set R_CONDA_PREFIX to the R Conda environment.\n' >&2
+  exit 1
+fi
+
+export PATH="$mtswirl_conda_prefix/bin:$hail_conda_prefix/bin:$r_conda_prefix/bin:$PATH"
+export JAVA_HOME="$mtswirl_conda_prefix"
+export HAIL_CONDA_PREFIX="$hail_conda_prefix"
+export MTSWIRL_CONDA_PREFIX="$mtswirl_conda_prefix"
+export R_CONDA_PREFIX="$r_conda_prefix"
+export PYSPARK_PYTHON="$hail_conda_prefix/bin/python"
 
 if ! command -v java >/dev/null 2>&1; then
   printf 'Java was not found on PATH.\n' >&2

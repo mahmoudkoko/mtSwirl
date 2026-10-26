@@ -1,10 +1,9 @@
 version 1.0
 
-import "AlignAndCallR1_v2_5_Single.wdl" as AlignAndCallR1_Single
-import "AlignAndCallR2_v2_5_Single.wdl" as AlignAndCallR2_Single
-import "LiftoverTools_v2_5_Single.wdl" as LiftoverTools_Single
-import "ProduceSelfReferenceFiles_v2_5_Single.wdl" as ProduceSelfReferenceFiles_Single
-import "MongoTasks_v2_5_Single.wdl" as MongoTasks_Single
+import "AlignAndCallR1.wdl" as AlignAndCallR1_Single
+import "AlignAndCallR2.wdl" as AlignAndCallR2_Single
+import "ProduceSelfReferenceFiles.wdl" as ProduceSelfReferenceFiles_Single
+import "MongoTasks.wdl" as MongoTasks_Single
 
 workflow MitochondriaPipeline {
 
@@ -39,6 +38,7 @@ workflow MitochondriaPipeline {
     File non_control_region_interval_list
 
     File HailLiftover
+    File haplocheck_cli
     File FaRenamingScript
     File CheckVariantBoundsScript
     File CheckHomOverlapScript
@@ -144,6 +144,7 @@ workflow MitochondriaPipeline {
       use_haplotype_caller_nucdna = use_haplotype_caller_nucdna,
       hc_dp_lower_bound = haplotype_caller_nucdna_dp_lower_bound,
       preemptible_tries = preemptible_tries,
+      haplocheck_cli = haplocheck_cli,
       haplochecker_docker = haplochecker_docker,
       n_cpu = n_cpu_m2_hc_lift
   }
@@ -284,7 +285,7 @@ workflow MitochondriaPipeline {
   }
 
   if (compute_numt_coverage) {
-    call NucCoverageAtEveryBase {
+    call MongoTasks_Single.NucCoverageAtEveryBase {
       input:
         input_bam_regular_ref = SubsetBamToChrMAndRevert.output_bam,
         input_bam_regular_ref_index = SubsetBamToChrMAndRevert.output_bai,
@@ -308,7 +309,7 @@ workflow MitochondriaPipeline {
         preemptible_tries = preemptible_tries
     }
 
-    call LiftoverTools_Single.LiftOverAndJoinCoverage as LiftOverAndJoinCoverage {
+    call MongoTasks_Single.LiftOverAndJoinCoverage as LiftOverAndJoinCoverage {
       input:
         ref_table = NucCoverageAtEveryBase.table_old_ref,
         self_table = NucCoverageAtEveryBase.table_new_self,
@@ -382,80 +383,5 @@ workflow MitochondriaPipeline {
     Int nuc_variants_dropped = ProduceSelfRefFiles.nuc_variants_dropped
     Int mtdna_consensus_overlaps = ProduceSelfRefFiles.mtdna_consensus_overlaps
     Int nuc_consensus_overlaps = ProduceSelfRefFiles.nuc_consensus_overlaps
-  }
-}
-
-task NucCoverageAtEveryBase {
-  input {
-    File input_bam_regular_ref
-    File input_bam_regular_ref_index
-    File input_bam_self_ref
-    File input_bam_self_ref_index
-    File input_bam_self_ref_shifted
-    File input_bam_self_ref_shifted_index
-    File nuc_interval_list
-    File ref_fasta
-    File ref_fasta_index
-    File ref_dict
-    File? self_nuc_interval_list
-    File self_fasta
-    File self_fasta_index
-    File self_dict
-    File? self_nuc_interval_list_shifted
-    File self_shifted_fasta
-    File self_shifted_fasta_index
-    File self_shifted_dict
-    String genomes_cloud_docker
-
-    Int? preemptible_tries
-  }
-  Int disk_size = ceil(size(input_bam_regular_ref, "GB") + size(input_bam_self_ref, "GB") + size(ref_fasta, "GB") * 2) + 20
-
-  meta {
-    description: "Mainly for QC to understand how NUMT coverage changes with remapping."
-  }
-  command <<<
-    set -e
-
-    java -jar /usr/gitc/picard.jar CollectHsMetrics \
-      I=~{input_bam_regular_ref} \
-      R=~{ref_fasta} \
-      PER_BASE_COVERAGE=reference_pre_realignment.tsv \
-      O=reference_pre_realignment.metrics \
-      TI=~{nuc_interval_list} \
-      BI=~{nuc_interval_list} \
-      COVMAX=20000 \
-      SAMPLE_SIZE=1
-
-    java -jar /usr/gitc/picard.jar CollectHsMetrics \
-      I=~{input_bam_self_ref} \
-      R=~{self_fasta} \
-      PER_BASE_COVERAGE=self_post_realignment.tsv \
-      O=self_post_realignment.metrics \
-      TI=~{self_nuc_interval_list} \
-      BI=~{self_nuc_interval_list} \
-      COVMAX=20000 \
-      SAMPLE_SIZE=1
-
-    java -jar /usr/gitc/picard.jar CollectHsMetrics \
-      I=~{input_bam_self_ref_shifted} \
-      R=~{self_shifted_fasta} \
-      PER_BASE_COVERAGE=self_post_realignment_shifted.tsv \
-      O=self_post_realignment_shifted.metrics \
-      TI=~{self_nuc_interval_list_shifted} \
-      BI=~{self_nuc_interval_list_shifted} \
-      COVMAX=20000 \
-      SAMPLE_SIZE=1
-  >>>
-  runtime {
-    disks: "local-disk " + disk_size + " HDD"
-    memory: "1200 MB"
-    docker: genomes_cloud_docker
-    preemptible: select_first([preemptible_tries, 5])
-  }
-  output {
-    File table_old_ref = "reference_pre_realignment.tsv"
-    File table_new_self = "self_post_realignment.tsv"
-    File table_new_self_shifted = "self_post_realignment_shifted.tsv"
   }
 }

@@ -6,9 +6,15 @@
 
 # outputs
 /outputs/**
+/cromwell-executions/**
+/cromwell-workflow-logs/**
+
+# archive
+/archive/
 
 # large objects
 *.jar
+!resources/scripts/haplocheckCLI.jar
 *.tar.gz
 
 # copy trace

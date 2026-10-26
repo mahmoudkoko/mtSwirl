@@ -21,7 +21,7 @@ fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd -- "$script_dir/../.." && pwd)
-workflow_dir="$repo_root/tests/cromwell-executions/MitochondriaPipeline/$workflow_id"
+workflow_dir="$repo_root/cromwell-executions/MitochondriaPipeline/$workflow_id"
 outputs_workflow_dir="$repo_root/tests/cromwell-outputs/MitochondriaPipeline/$workflow_id"
 output_dir="$outputs_workflow_dir/$sample_name"
 final_vcf="$workflow_dir/call-LiftOverAfterSelf/execution/out/${sample_name}.self.ref.split.selfToRef.final.vcf"

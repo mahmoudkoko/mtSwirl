@@ -1,6 +1,6 @@
 version 1.0
 
-import "fullMitoPipeline_v2_5_Single.wdl" as MitochondriaPipeline_v2_5
+import "MitoPipeline.wdl" as MitochondriaPipeline_v2_5
 
 workflow MitochondriaPipelineWrapper {
 
@@ -35,6 +35,7 @@ workflow MitochondriaPipelineWrapper {
     File non_control_region_interval_list
 
     File HailLiftover
+    File haplocheck_cli
     File FaRenamingScript
     File CheckVariantBoundsScript
     File JsonTools
@@ -103,6 +104,7 @@ workflow MitochondriaPipelineWrapper {
           non_control_region_interval_list = non_control_region_interval_list,
 
           HailLiftover = HailLiftover,
+          haplocheck_cli = haplocheck_cli,
           FaRenamingScript = FaRenamingScript,
           CheckVariantBoundsScript = CheckVariantBoundsScript,
           CheckHomOverlapScript = CheckHomOverlapScript,
@@ -262,15 +264,23 @@ task MergeMitoMultiSampleOutputsInternal {
 
     mkdir tmp
 
+    : "${HAIL_CONDA_PREFIX:?Set HAIL_CONDA_PREFIX to the Hail Conda environment}"
+
     # now merge coverage
-    python3.7 ~{MergePerBatch} \
+    JAVA_HOME="$HAIL_CONDA_PREFIX" \
+    PATH="$HAIL_CONDA_PREFIX/bin:$PATH" \
+    PYSPARK_PYTHON="$HAIL_CONDA_PREFIX/bin/python" \
+    python ~{MergePerBatch} \
     --run-coverage \
     --input-tsv coverage_paths.tsv \
     --temp-dir tmp/ \
     --output-flat-file batch_merged_mt_coverage.tsv.bgz
 
     # finally merge variant calls
-    python3.7 ~{MergePerBatch} \
+    JAVA_HOME="$HAIL_CONDA_PREFIX" \
+    PATH="$HAIL_CONDA_PREFIX/bin:$PATH" \
+    PYSPARK_PYTHON="$HAIL_CONDA_PREFIX/bin/python" \
+    python ~{MergePerBatch} \
     --run-variants \
     --input-tsv vcf_paths.tsv \
     --temp-dir tmp/ \
@@ -286,7 +296,7 @@ task MergeMitoMultiSampleOutputsInternal {
   runtime {
     disks: "local-disk " + disk_size + " HDD"
     memory: "2 GB"
-    docker: genomes_cloud_docker
+    # docker: genomes_cloud_docker
     preemptible: select_first([preemptible_tries, 5])
   }
 }

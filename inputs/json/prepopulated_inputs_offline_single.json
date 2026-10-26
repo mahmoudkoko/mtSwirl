@@ -18,6 +18,7 @@
   "MitochondriaPipeline.CheckVariantBoundsScript": "resources/scripts/check_variant_bounds.R",
   "MitochondriaPipeline.CheckHomOverlapScript": "resources/scripts/check_overlapping_homoplasmies.R",
   "MitochondriaPipeline.HailLiftover": "resources/scripts/fix_liftover.py",
+  "MitochondriaPipeline.haplocheck_cli": "resources/scripts/haplocheckCLI.jar",
   "MitochondriaPipeline.JsonTools": "resources/scripts/jsontools.py",
   "MitochondriaPipeline.ucsc_docker": "docker.io/rahulg603/ucsc_docker:latest",
   "MitochondriaPipeline.genomes_cloud_docker": "docker.io/rahulg603/genomes_cloud_docker:latest",
