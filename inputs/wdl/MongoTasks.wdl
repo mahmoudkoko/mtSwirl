@@ -611,7 +611,7 @@ task MongoNucM2 {
       ~{"--f-score-beta " + f_score_beta} \
       --contamination-estimate "~{d}{this_contamination}"
 
-    ~{"gatk IndexFeatureFile -I " + blacklisted_sites}
+    # ~{"gatk IndexFeatureFile -I " + blacklisted_sites}
 
     gatk --java-options "-Xmx~{command_mem}m" VariantFiltration -V filtered.vcf \
       -O "~{d}{this_basename}.vcf" \
@@ -766,7 +766,7 @@ task MongoRunM2InitialFilterSplit {
       ~{"--f-score-beta " + f_score_beta} \
       --contamination-estimate "~{d}{this_contamination}"
 
-    ~{"gatk IndexFeatureFile -I " + blacklisted_sites}
+    # ~{"gatk IndexFeatureFile -I " + blacklisted_sites}
 
     gatk --java-options "-Xmx~{command_mem}m" VariantFiltration -V filtered.vcf \
       -O "~{d}{this_basename}.filtered.vcf" \
@@ -924,7 +924,9 @@ task MongoM2FilterContaminationSplit {
       --contamination-estimate "~{d}{this_max_contamination}"
 
     #~{"gatk IndexFeatureFile -I " + blacklisted_sites}
-    gatk IndexFeatureFile -I "~{blacklisted_sites}"
+    # The static blacklist BED and its GATK index are supplied as workflow inputs.
+    # Do not regenerate the index here: Cromwell may hard-link localized inputs.
+    # gatk IndexFeatureFile -I "~{blacklisted_sites}"
 
     gatk --java-options "-Xmx2500m" VariantFiltration \
       -V filtered.vcf \
@@ -1426,7 +1428,8 @@ task MongoProduceSelfReference {
     rm -rf output_isec
 
 
-    bcftools consensus -f mt_fasta_renamed.fasta -o mt_fasta_lifted.fasta -c "~{d}{this_mt_chain}" "~{d}{this_filt_vcf}.gz"
+    # Select the high-AF sample's ALT allele rather than relying on bcftools defaults.
+    bcftools consensus -s "${this_samp_name}" -H A -f mt_fasta_renamed.fasta -o mt_fasta_lifted.fasta -c "~{d}{this_mt_chain}" "~{d}{this_filt_vcf}.gz"
     Rscript --vanilla ~{fa_renaming_script} mt_fasta_lifted.fasta internal_mt.interval_list TRUE "~{d}{this_mt_fasta}" TRUE
     
     
@@ -1466,7 +1469,7 @@ task MongoProduceSelfReference {
     Rscript --vanilla ~{fa_renaming_script} nuc_fasta.fasta internal_nuc.interval_list FALSE nuc_fasta_renamed.fasta FALSE
     samtools faidx nuc_fasta_renamed.fasta
     bgzip -c ./intersected_vcfs/0000.vcf > filtered_nuc_vcf.gz && tabix filtered_nuc_vcf.gz
-    bcftools consensus -f nuc_fasta_renamed.fasta -o nuc_fasta_lifted.fasta -c "~{d}{this_nuc_chain}" filtered_nuc_vcf.gz
+    bcftools consensus -s "${this_samp_name}" -H A -f nuc_fasta_renamed.fasta -o nuc_fasta_lifted.fasta -c "~{d}{this_nuc_chain}" filtered_nuc_vcf.gz
     Rscript --vanilla ~{fa_renaming_script} nuc_fasta_lifted.fasta internal_nuc.interval_list TRUE "~{d}{this_nuc_only_fasta}" FALSE
     cat "~{d}{this_nuc_only_fasta}" "~{d}{this_mt_fasta}" > "~{d}{this_nuc_mt_fasta}"
     #/usr/gitc/bwa index ~{d}{this_nuc_mt_fasta}
@@ -1790,8 +1793,10 @@ task MongoAlignToMtRegShiftedAndMetrics {
     this_mt_intervals="~{mt_interval_list}"
     this_mt_cat_fasta="~{mt_cat}"
     this_mt_fasta="~{mt}"
+    this_mt_dict="~{mt_dict}"
     this_mt_shifted_cat_fasta="~{mt_shifted_cat}"
     this_mt_shifted_fasta="~{mt_shifted}"
+    this_mt_shifted_dict="~{mt_shifted_dict}"
 
     # set the bash variable needed for the command-line
     #/usr/gitc/bwa index "~{d}{this_mt_cat_fasta}"
@@ -1859,7 +1864,7 @@ task MongoAlignToMtRegShiftedAndMetrics {
     gatk --java-options "-Xms5000m" ReorderSam \
       -I "~{d}{this_output_bam_basename}_pre_mt_filt.bam" \
       -O "~{d}{this_output_bam_basename}.bam" \
-      -R "~{d}{this_mt_fasta}" \
+      --SEQUENCE_DICTIONARY "~{d}{this_mt_dict}" \
       --ALLOW_INCOMPLETE_DICT_CONCORDANCE true \
       --CREATE_INDEX true
 
@@ -1922,7 +1927,7 @@ task MongoAlignToMtRegShiftedAndMetrics {
     gatk --java-options "-Xms5000m" ReorderSam \
       -I "~{d}{this_output_bam_basename}.shifted_pre_mt_filt.bam" \
       -O "~{d}{this_output_bam_basename}.shifted.bam" \
-      -R "~{d}{this_mt_shifted_fasta}" \
+      --SEQUENCE_DICTIONARY "~{d}{this_mt_shifted_dict}" \
       --ALLOW_INCOMPLETE_DICT_CONCORDANCE true \
       --CREATE_INDEX true
 
@@ -2141,7 +2146,8 @@ task MongoLiftoverVCFAndGetCoverage {
       -TI "~{d}{this_self_non_control}" \
       -BI "~{d}{this_self_non_control}" \
       --COVERAGE_CAP 20000 \
-      --SAMPLE_SIZE 1
+      --SAMPLE_SIZE 1 \
+      --VALIDATION_STRINGENCY LENIENT
 
     gatk CollectHsMetrics \
       -I "~{d}{this_self_shifted_bam}" \
@@ -2151,7 +2157,8 @@ task MongoLiftoverVCFAndGetCoverage {
       -TI "~{d}{this_self_control}" \
       -BI "~{d}{this_self_control}" \
       --COVERAGE_CAP 20000 \
-      --SAMPLE_SIZE 1
+      --SAMPLE_SIZE 1 \
+      --VALIDATION_STRINGENCY LENIENT
 
     R --vanilla <<CODE
       full_fasta <- readLines("~{d}{this_self_fasta}") # edited to account for variable reference sizes

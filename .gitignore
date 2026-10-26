@@ -6,6 +6,7 @@
 
 # outputs
 /outputs/**
+/cromwell-outputs/**
 /cromwell-executions/**
 /cromwell-workflow-logs/**
 
@@ -16,6 +17,9 @@
 *.jar
 !resources/scripts/haplocheckCLI.jar
 *.tar.gz
+/inputs/wgs/NA18484/NA18484.final.cram
+/inputs/wgs/NA18484/NA18484.final.cram.crai
+/inputs/wgs/NA18484/NA18484.final.dict
 
 # copy trace
 *:Zone.Identifier

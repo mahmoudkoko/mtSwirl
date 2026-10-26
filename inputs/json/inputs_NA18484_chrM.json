@@ -20,17 +20,6 @@
   "MitochondriaPipeline.HailLiftover": "resources/scripts/fix_liftover.py",
   "MitochondriaPipeline.haplocheck_cli": "resources/scripts/haplocheckCLI.jar",
   "MitochondriaPipeline.JsonTools": "resources/scripts/jsontools.py",
-  "MitochondriaPipeline.ucsc_docker": "docker.io/rahulg603/ucsc_docker:latest",
-  "MitochondriaPipeline.genomes_cloud_docker": "docker.io/rahulg603/genomes_cloud_docker:latest",
-  "MitochondriaPipeline.haplochecker_docker": "docker.io/rahulg603/haplochecker_docker:latest",
-  "MitochondriaPipeline.gatk_samtools_docker": "docker.io/rahulg603/gatk_samtools_docker:latest",
-  "MitochondriaPipeline.gatk_docker_override": "docker.io/rahulg603/gatk_samtools_docker:latest",
-  "MitochondriaPipeline.gatk_version": "4.2.6.0",
-  "MitochondriaPipeline.haplotype_caller_nucdna_dp_lower_bound": 10,
   "MitochondriaPipeline.printreads_mem": 5,
-  "MitochondriaPipeline.printreads_extra_args": "",
-  "MitochondriaPipeline.force_manual_download": false,
-  "MitochondriaPipeline.compute_numt_coverage": false,
-  "MitochondriaPipeline.skip_restore_hardclips": true,
-  "MitochondriaPipeline.use_haplotype_caller_nucdna": true
+  "MitochondriaPipeline.skip_restore_hardclips": true
 }

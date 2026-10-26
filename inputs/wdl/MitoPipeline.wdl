@@ -44,7 +44,7 @@ workflow MitochondriaPipeline {
     File CheckHomOverlapScript
     File JsonTools
 
-    Boolean force_manual_download
+    Boolean force_manual_download = false
     String? requester_pays_project
     String? m2_extra_args
     String? m2_filter_extra_args
@@ -65,10 +65,10 @@ workflow MitochondriaPipeline {
     String gatk_version = "4.2.6.0"
     File? gatk_override
     String? gatk_docker_override
-    String ucsc_docker
-    String genomes_cloud_docker
-    String haplochecker_docker
-    String gatk_samtools_docker
+    String ucsc_docker = ""
+    String genomes_cloud_docker = ""
+    String haplochecker_docker = ""
+    String gatk_samtools_docker = ""
 
     #Optional runtime arguments
     Int? printreads_mem

@@ -830,7 +830,17 @@ def produce_pseudo_haplotypes(ht, incr, incr_reference, self_reference):
     df['grch38_ref'] = result_holder.apply(lambda x: x['grch38_ref'])
     df['grch38_alt'] = result_holder.apply(lambda x: x['grch38_alt'])
     df['get_data_from_self_pos_0'] = result_holder.apply(lambda x: x['get_data_from_self_pos_0'])
-    df['paired_allele_alt'] = df.apply(lambda x: list(zip(x.grch38_alt, x.allele_array, x.get_data_from_self_pos_0)),1)
+    for column in ('is_reversed_grch38_to_self', 'get_data_from_self_pos_0'):
+        df[column] = df[column].apply(lambda flags: [bool(flag) for flag in flags])
+    df['paired_allele_alt'] = df.apply(
+        lambda x: [
+            (alt, alleles, bool(source_from_self))
+            for alt, alleles, source_from_self in zip(
+                x.grch38_alt, x.allele_array, x.get_data_from_self_pos_0
+            )
+        ],
+        axis=1,
+    )
     ht_new = hl.Table.from_pandas(df).explode('paired_allele_alt')
     ht_new = ht_new.select(locus = hl.locus('chrM', hl.int32(ht_new.incr_position), incr_reference),
                            alleles = [ht_new.grch38_ref, ht_new.paired_allele_alt[0]],
@@ -1445,29 +1455,34 @@ def left_align_and_normalize(mt, mt_meta, reference, reference_fasta_path, outpu
 
     if res.returncode != 0:
         raise subprocess.SubprocessError('ERROR: bcftools returned with non-zero exit code.')
-    bcftools_split_output = [x for x in res.stderr.split('\n') if not re.search('\\[E::bcf_hdr_parse_line\\] Could not parse the header line: \\"##', x)]
-    if len(bcftools_split_output) != 2:
-        raise subprocess.SubprocessError('ERROR: bcftools stderr does not match expected format.')
-    bcftools_output = re.search('^Lines   total/split/realigned/skipped:\t([0-9]+)/([0-9]+)/([0-9]+)/([0-9]+)$', bcftools_split_output[0])
-    if not bcftools_output:
+    bcftools_output = {}
+    for line in res.stderr.splitlines():
+        match = re.match(r'^Lines\s+([^:]+):\s*([0-9]+(?:/[0-9]+)*)$', line)
+        if match:
+            fields = match[1].split('/')
+            values = match[2].split('/')
+            if len(fields) == len(values):
+                bcftools_output = dict(zip(fields, map(int, values)))
+                break
+    if not {'total', 'split', 'realigned', 'skipped'}.issubset(bcftools_output):
         raise subprocess.SubprocessError('ERROR: bcftools output did not match expected format.')
     mt_new, mt_meta_new = read_mito_vcf(f'{output_prefix}.tmp_fixed.vcf', reference)
-    if int(bcftools_output[1]) != mt.count_rows():
+    if bcftools_output['total'] != mt.count_rows():
         raise subprocess.SubprocessError('ERROR: bcftools did not count the same number of variants as was in input mt.')
     if mt_new.count_rows() != mt.count_rows():
         raise subprocess.SubprocessError('ERROR: bcftools appears to have lost/gained some variants.')
-    if int(bcftools_output[2]) != 0:
+    if bcftools_output['split'] != 0:
         raise subprocess.SubprocessError('ERROR: bcftools split an allele. This should not happen.')
-    if int(bcftools_output[3]) != mt_new.anti_join_rows(mt.rows()).count_rows():
+    if bcftools_output['realigned'] != mt_new.anti_join_rows(mt.rows()).count_rows():
         raise subprocess.SubprocessError('ERROR: the number of variants realigned by bcftools should be the same as the alleles that appear changed.')
-    if int(bcftools_output[4]) != 0:
+    if bcftools_output['skipped'] != 0:
         raise subprocess.SubprocessError('ERROR: bcftools skipped alleles. This should not happen.')
     
     mt_preserved = mt_new.semi_join_rows(mt.rows())
     mt_modified = mt_new.anti_join_rows(mt.rows())
     mt_modified = add_filter(mt_modified, 'LeftShiftedIndel')
     mt_out = mt_preserved.union_rows(mt_modified).persist()
-    return mt_out, mt_meta_new, int(bcftools_output[3]), res.stderr
+    return mt_out, mt_meta_new, bcftools_output['realigned'], res.stderr
 
 
 def rescue_duplicated_alleles(mt, success_mt, failed_mt, meta, failed_meta, self_ref):
