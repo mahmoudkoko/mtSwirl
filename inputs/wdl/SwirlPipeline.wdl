@@ -32,7 +32,6 @@ workflow SwirlPipeline {
     File blacklisted_sites
     File blacklisted_sites_index
 
-    File control_region_shifted_reference_interval_list
     File non_control_region_interval_list
 
     File HailLiftover
@@ -43,11 +42,9 @@ workflow SwirlPipeline {
     File haplocheck_cli
     File FaRenamingScript
     File CheckVariantBoundsScript
-    File JsonTools
     File CheckHomOverlapScript
     File MergePerBatch
 
-    Boolean force_manual_download
     String? requester_pays_project
     String? m2_extra_args
     String? m2_filter_extra_args
@@ -55,28 +52,12 @@ workflow SwirlPipeline {
     Float? vaf_filter_threshold
     Float? f_score_beta
     Float? verifyBamID
-    Boolean compress_output_vcf = false
     Boolean compute_numt_coverage = false
     Boolean use_haplotype_caller_nucdna = true
     Boolean skip_restore_hardclips = false
     Int haplotype_caller_nucdna_dp_lower_bound = 10
-
-    #Docker and version arguments
-    #String gatk_version = "4.2.6.0"
-    #File? gatk_override
-    #String? gatk_docker_override
-    #String ucsc_docker = "docker.io/rahulg603/ucsc_genome_toolkit"
-    #String genomes_cloud_docker = "docker.io/rahulg603/genomes_cloud_bcftools"
-    #String haplochecker_docker = "docker.io/rahulg603/haplochecker"
-    #String gatk_samtools_docker = "docker.io/rahulg603/gatk46_samtools"
-
-    #Optional runtime arguments
     Int? printreads_mem
-    Int? lift_coverage_mem
-    Int? n_cpu_subsetbam
-    Int? n_cpu_m2_hc_lift
     Int? n_cpu_bwa
-    Int? preemptible_tries
   }
 
   Array[File] input_cram = read_lines(wgs_aligned_input_bam_or_cram_list)
@@ -105,7 +86,6 @@ workflow SwirlPipeline {
           blacklisted_sites = blacklisted_sites,
           blacklisted_sites_index = blacklisted_sites_index,
 
-          control_region_shifted_reference_interval_list = control_region_shifted_reference_interval_list,
           non_control_region_interval_list = non_control_region_interval_list,
 
           HailLiftover = HailLiftover,
@@ -117,9 +97,7 @@ workflow SwirlPipeline {
           FaRenamingScript = FaRenamingScript,
           CheckVariantBoundsScript = CheckVariantBoundsScript,
           CheckHomOverlapScript = CheckHomOverlapScript,
-          JsonTools = JsonTools,
 
-          force_manual_download = force_manual_download,
           requester_pays_project = requester_pays_project,
           m2_extra_args = m2_extra_args,
           m2_filter_extra_args = m2_filter_extra_args,
@@ -127,25 +105,12 @@ workflow SwirlPipeline {
           vaf_filter_threshold = vaf_filter_threshold,
           f_score_beta = f_score_beta,
           verifyBamID = verifyBamID,
-          compress_output_vcf = compress_output_vcf,
           compute_numt_coverage = compute_numt_coverage,
           use_haplotype_caller_nucdna = use_haplotype_caller_nucdna,
           haplotype_caller_nucdna_dp_lower_bound = haplotype_caller_nucdna_dp_lower_bound,
 
-          #gatk_version = gatk_version,
-          #gatk_override = gatk_override,
-          #gatk_docker_override = gatk_docker_override,
-          #ucsc_docker = ucsc_docker,
-          #genomes_cloud_docker = genomes_cloud_docker,
-          #haplochecker_docker = haplochecker_docker,
-          #gatk_samtools_docker = gatk_samtools_docker,
-
           printreads_mem = printreads_mem,
-          lift_coverage_mem = lift_coverage_mem,
-          n_cpu_subsetbam = n_cpu_subsetbam,
-          n_cpu_m2_hc_lift = n_cpu_m2_hc_lift,
-          n_cpu_bwa = n_cpu_bwa,
-          #preemptible_tries = preemptible_tries
+          n_cpu_bwa = n_cpu_bwa
     }
   }
 
@@ -156,8 +121,7 @@ workflow SwirlPipeline {
       coverage_table = ProcessSingleSample.final_base_level_coverage_metrics,
       statistics = ProcessSingleSample.stats_outputs,
       MergePerBatch = MergePerBatch,
-      coverage_helpers_script = CoverageHelpersScript,
-      preemptible_tries = preemptible_tries
+      coverage_helpers_script = CoverageHelpersScript
   }
 
   output {
@@ -227,7 +191,5 @@ workflow SwirlPipeline {
     File merged_statistics = MergeMultiSampleOutputs.merged_statistics
     File merged_coverage = MergeMultiSampleOutputs.merged_coverage
     File merged_calls = MergeMultiSampleOutputs.merged_calls
-    #File merged_idxstats = MergeMitoMultiSampleOutputs.merged_idxstats
-    #File merged_yield = MergeMitoMultiSampleOutputs.merged_yield
   }
 }

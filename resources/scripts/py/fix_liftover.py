@@ -400,23 +400,7 @@ def dele_spans_insertion(mt, exploded_insertions, reference_genome, ignore_ident
     dedup_expl = expl_tmp.key_by('coord_s', 'ref_allele', 'alt_allele').distinct().key_by('coord_s')
     ht = mt.rows()
     ht = ht.filter(hl.literal(NONINDEL).contains(ht.alleles[1]) & ~hl.literal(NONINDEL).contains(ht.alleles[0]))
-    
-    # for testing with K1481
-    # df = pd.DataFrame({'pos':[503,509,509,511,511,511,511,513,513,513,516,517,518],
-    #                    'ref':['ATCC','CCCA','CCCAG','CAGC','CAGCA','CAGCACA','CAGCACAC','GCACA','GCACAC','GC','CA','ACA','CACA'],
-    #                    'alt':['A','C','C','C','C','G','G','G','G','G','C','A','C']})
-    # ht_custom = hl.Table.from_pandas(df)
-    # ht = ht_custom.annotate(locus = hl.locus('chrM',hl.int32(ht_custom.pos),reference_genome), 
-    #                         alleles=[ht_custom.ref, ht_custom.alt]).key_by('locus','alleles')
-    # df_dedup_expl = pd.DataFrame({'bases_in_block': [6], 'ns': [4], 'nt': [0], 
-    #                               'coord_s': [hl.locus('chrM', 513, reference_genome=reference_genome)],
-    #                               'coord_t': [hl.locus('chrM', 513, reference_genome='GRCh38')],
-    #                               'coord_end': [hl.locus('chrM', 517, reference_genome=reference_genome)],
-    #                               'ref_allele': ['a'], 'alt_allele': ['b'],
-    #                               'is_in_insert': [True]})
-    # dedup_expl = hl.Table.from_pandas(df_dedup_expl).key_by('coord_s')
-    # expl_tmp = dedup_expl.annotate(sites = hl.map(lambda x: hl.locus('chrM', x, reference_genome=reference_genome), hl.range(513, 513+5)))
-    # expl_tmp = expl_tmp.explode('sites').key_by('sites')
+
     
     if ignore_identical:
         dedup_for_filt = dedup_expl.annotate(alleles = [dedup_expl.alt_allele, dedup_expl.ref_allele]).key_by('coord_s','alleles')
@@ -664,8 +648,6 @@ def fix_ref_insertions(mt, mt_meta, insertions_in, self_reference, allow_NONREF,
     # heteroplasmies sharing the same first site as a homoplasmic insertion (grch38) are supported only if they are indels
     if mt_test.count_rows() > 0:
         # we now allow heteroplasmic insertions that share the first site with a homoplasmic reference insertion
-        #if mt_test.aggregate_rows(hl.agg.any((hl.len(mt_test.alleles[1]) > 1) | (hl.len(mt_test.alleles[0]) == 1))):
-            #raise ValueError('ERROR: Only heteroplasmic deletions can be found at the first site of a left-aligned insertion (relative to GRCh38; deletion in self-reference). Investigate why this has happened here.')
         print('NOTE: There is a heteroplasmic indel at the same starting position as a homoplasmic insertion relative to GRCh38.', file=log)
     if allow_NONREF:
         raise NotImplementedError('ERROR: allow_NONREF is not implemented for fix_ref_insertions, as we currently enforce one-to-one mapping between haplotypes and variants.')
@@ -760,14 +742,6 @@ def produce_pseudo_haplotypes(ht, incr, incr_reference, self_reference):
                    is_reversed_grch38_to_self = ht.is_reversed_grch38_to_self)
     df = ht.to_pandas()
 
-    # newdf = pd.DataFrame({'site':[205, 205, 206, 207, 208, 208], 'incr':205,
-    #                       'alt_allele':['T', 'T', 'C', 'ATC', 'C', 'T'], 
-    #                       'alleles':[['TCAA','T'], ['TCA', 'T'], ['CAA','C'],['A','ATC'], ['A', 'C'], ['A', 'T']], 
-    #                       'self_ref_insertion_seq':'TCAA',
-    #                       'site_start': [205, 205, 205, 205, 205 , 205],
-    #                       'site_end': [208, 208, 208, 208, 208, 208],
-    #                       'is_reversed_grch38_to_self': [True, False, False, False, False, False]})
-    # df = df.append(newdf)
     df = df.sort_values(by='site', axis=0)
 
     if not all((df.site_end - df.site_start + 1) == df.self_ref_insertion_seq.str.len()):
@@ -810,8 +784,6 @@ def produce_pseudo_haplotypes(ht, incr, incr_reference, self_reference):
                 to_replace_start = series.site - series.site_start
                 if to_replace_start == 0:
                     # we now support heteroplasmic insertions
-                    #if (len(allele[0]) == 1) | (len(allele[1]) > 1):
-                        #raise ValueError('Only heteroplasmic deletions are supported at the first site of an insertion.')
                     if (len(allele[0]) == 0) & (len(allele[1]) == 0):
                         raise ValueError('Only heteroplasmic indels are supported at the first site of an insertion.')
                 to_replace_end = to_replace_start + len(allele[0])
@@ -899,7 +871,6 @@ def make_first_indel_site_ref(mt, mt_meta, matching_homoplasmies, reference_coor
     if mt.aggregate_rows(~hl.agg.all(hl.map(lambda x: x[0], mt.updated_alleles)[0] == hl.map(lambda x: x[0], mt.updated_alleles)[1])):
         raise ValueError('ERROR: changing first site of indel did not produce matching first site in resultant alleles.')
     mt = mt.annotate_rows(ref_end_position = get_ref_locus_end(mt.locus, mt.updated_alleles[0], exploded_insertions, self_ref, ref))
-    #mt = mt.annotate_rows(ref_end_position = hl.liftover(hl.locus('chrM', mt.locus.position + mt.updated_alleles[0].length() - 1, reference_genome=self_ref), ref))
     if mt.aggregate_rows(~hl.agg.all(hl.is_defined(mt.ref_end_position))):
         raise ValueError('ERROR: the end position of all REF allele should be liftover-compatible.')
     mt = mt.annotate_rows(expected_ref = hl.get_sequence('chrM', mt.locus_grch38.position, before=0, after=mt.ref_end_position.position-mt.locus_grch38.position, reference_genome=ref))
@@ -1055,7 +1026,6 @@ def complex_swap_field(mt, ROW_BOOL_fields, ROW_R_fields, ROW_custom_fields, ENT
         Updated on 2/5/22 to ignore orientation and always replace the reference position with
         reference data from "replace".
         """
-        #return hl.if_else(hl.is_defined(expr), hl.if_else(orientation == 0, [replace[0], expr[1]], [expr[0], replace[0]]), expr)
         return hl.if_else(hl.is_defined(expr), [replace[flipped_idx], expr[1]], expr)
 
 
@@ -1308,7 +1278,6 @@ def resolve_deletion_boundary_cases(mt, mt_meta, exploded_insertions, self_homop
     if mt_new_2.aggregate_rows(~hl.agg.all(hl.is_defined(mt_new_2.ref_end_position))):
         raise ValueError('ERROR: the end position of all REF allele should be liftover-compatible.')
     mt_new_2 = mt_new_2.annotate_rows(expected_ref = hl.get_sequence('chrM', mt_new_2.locus_grch38.position, before=0, after=mt_new_2.ref_end_position.position-mt_new_2.locus_grch38.position, reference_genome=ref)).drop('ref_end_position')
-    #mt_new_2 = mt_new_2.annotate_rows(expected_ref = hl.get_sequence('chrM',mt_new_2.locus_grch38.position, reference_genome=ref, after=hl.len(mt_new_2.updated_alleles[0])-1))
     mt_new_2 = mt_new_2.key_rows_by().drop('alleles').rename({'updated_alleles':'alleles'}).key_rows_by('locus','alleles')
     mt_new_2 = add_filter(mt_new_2, 'DeletionSpannedHomoplasmicInsertion')
 
@@ -1813,9 +1782,7 @@ def main(vcf_file, success_vcf_file, individual_name, self_to_ref_chain, ref_to_
     ###### FINALIZE INPUTS AND RUN GLOBAL CONSISTANCY CHECKS ON VCFs ######
     failed_to_liftover = failed_to_liftover.annotate_rows(locus_grch38 = hl.liftover(failed_to_liftover.locus, MTREF))
     failed_to_liftover = failed_to_liftover.annotate_rows(grch38_seq = failed_to_liftover.locus_grch38.sequence_context())
-    #if not skip_checkpoint:
-        #failed_to_liftover = failed_to_liftover.checkpoint('failed_tmp.mt')
-        #success_vcf = success_vcf.checkpoint('success_tmp.mt')
+
     original_force_homoplasmies = failed_to_liftover.semi_join_rows(homoplasmies.rows())
     global_consistancy_checks(failed_to_liftover, allow_NONREF, self_ref, debug)
     global_consistancy_checks(success_vcf, allow_NONREF, ref, debug)

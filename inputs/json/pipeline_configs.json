@@ -18,7 +18,8 @@
     "options": {
       "MitochondriaPipeline.printreads_mem": 5,
       "MitochondriaPipeline.skip_restore_hardclips": true,
-      "MitochondriaPipeline.force_manual_download": false
+      "SwirlPipeline.vaf_filter_threshold": 0.001,
+      "SwirlPipeline.max_read_length": 151
     }
   }
 }

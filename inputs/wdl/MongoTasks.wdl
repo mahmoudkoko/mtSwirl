@@ -4,14 +4,6 @@ version 1.0
 # These tasks are serial combinations of more modular tasks that were located in each individual WDL.
 
 
-
-##########################
-##########################
-## Runtime: gatk_docker ##
-##########################
-##########################
-
-
 #################################
 # MongoSubsetBamToChrMAndRevert #
 #################################
@@ -36,25 +28,14 @@ task MongoSubsetBamToChrMAndRevert {
     Int? read_length
     Int? coverage_cap
 
-    File? gatk_override
-    String? gatk_docker_override
-    String gatk_version
     String? printreads_extra_args
-
-    # runtime
-    Boolean force_manual_download # will download using gsutil cp
     Int? mem
-    Int? n_cpu
-    Int? preemptible_tries
   }
-  Float ref_size = if defined(ref_fasta) then size(ref_fasta, "GB") + size(ref_fasta_index, "GB") + size(ref_dict, "GB") else 0
   String appended_bam = input_bam + '.crai'
-  Int disk_size = ceil(ref_size) + ceil(size(input_bam,'GB')) + 20
   Int read_length_for_optimization = select_first([read_length, 151])
   Int machine_mem = select_first([mem, 4])
   Int command_mem = (machine_mem * 1000) - 500
   String skip_hardclip_str = if skip_restore_hardclips then "--RESTORE_HARDCLIPS false" else ""
-  String requester_pays_prefix = (if defined(requester_pays_project) then "-u " else "") + select_first([requester_pays_project, ""])
 
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
@@ -72,7 +53,6 @@ task MongoSubsetBamToChrMAndRevert {
   }
   command <<<
     set -e
-    # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
     mkdir out
 
@@ -80,10 +60,6 @@ task MongoSubsetBamToChrMAndRevert {
     this_bai="~{select_first([input_bai, appended_bam])}"
     this_sample=out/"~{sample_name}"
 
-    #~{if force_manual_download then "gsutil " + requester_pays_prefix + " cp ~{d}{this_bam} bamfile.cram" else ""}
-    #~{if force_manual_download then "gsutil " + requester_pays_prefix + " cp ~{d}{this_bai} bamfile.cram.crai" else ""}
-    #~{if force_manual_download then "this_bam=bamfile.cram" else ""}
-    #~{if force_manual_download then "this_bai=bamfile.cram.crai" else ""}
 
     gatk --java-options "-Xmx~{command_mem}m" PrintReads \
       ~{"-R " + ref_fasta} \
@@ -166,13 +142,6 @@ task MongoSubsetBamToChrMAndRevert {
       CREATE_INDEX=true \
       MAX_RECORDS_IN_RAM=300000
   >>>
-  runtime {
-    # memory: machine_mem + " GB"
-    # disks: "local-disk " + disk_size + " HDD"
-    # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-    # preemptible: select_first([preemptible_tries, 5])
-    # cpu: select_first([n_cpu,1])
-  }
   output {
     File output_bam = "out/~{sample_name}.proc.bam"
     File output_bai = "out/~{sample_name}.proc.bai"
@@ -182,179 +151,6 @@ task MongoSubsetBamToChrMAndRevert {
     Int mean_coverage = read_int("out/~{sample_name}.mean_coverage.txt")
   }
 }
-
-
-#####################################
-# MongoSubsetBamToChrMAndRevertFUSE #
-#####################################
-
-# task MongoSubsetBamToChrMAndRevertFUSE {
-  # input {
-    # File input_bam
-    # File? input_bai
-    # String sample_name
-
-#     # File? mt_interval_list
-    # File? nuc_interval_list
-    # String? contig_name
-    # String? requester_pays_project
-    # File? ref_fasta
-    # File? ref_fasta_index
-    # File? ref_dict
-
-#     # Boolean skip_restore_hardclips
-    # String? read_name_regex
-    # Int? read_length
-    # Int? coverage_cap
-
-#     # File? gatk_override
-    # String? gatk_docker_override
-    # String gatk_version
-
-#     # runtime
-    # Boolean force_manual_download # will download using gsutil cp
-    # Int? mem
-    # Int? n_cpu
-    # Int? preemptible_tries
-  # }
-  # Float ref_size = if defined(ref_fasta) then size(ref_fasta, "GB") + size(ref_fasta_index, "GB") + size(ref_dict, "GB") else 0
-  # Int disk_size = ceil(ref_size) + ceil(size(input_bam,'GB')) + 20
-  # Int read_length_for_optimization = select_first([read_length, 151])
-  # Int machine_mem = select_first([mem, 4])
-  # Int command_mem = (machine_mem * 1000) - 500
-  # String skip_hardclip_str = if skip_restore_hardclips then "--RESTORE_HARDCLIPS false" else ""
-  # String requester_pays_prefix = (if defined(requester_pays_project) then "-u " else "") + select_first([requester_pays_project, ""])
-
-#   # String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
-
-#   # meta {
-    # description: "Subsets a whole genome bam to just Mitochondria reads"
-  # }
-  # parameter_meta {
-    # ref_fasta: "Reference is only required for cram input. If it is provided ref_fasta_index and ref_dict are also required."
-    # input_bam: {
-      # localization_optional: true
-    # }
-    # input_bai: {
-      # localization_optional: true
-    # }
-  # }
-  # command <<<
-    # set -e
-    # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
-
-#     # ls -l /
-    # ls -l /mnt
-
-#     # mkdir out
-
-#     # this_bam="~{input_bam}"
-    # this_bai="~{select_first([input_bai, input_bam + '.crai'])}"
-    # this_sample=out/"~{sample_name}"
-
-#     # ~{if force_manual_download then "gsutil " + requester_pays_prefix + " cp ~{d}{this_bam} bamfile.cram" else ""}
-    # ~{if force_manual_download then "gsutil " + requester_pays_prefix + " cp ~{d}{this_bai} bamfile.cram.crai" else ""}
-    # ~{if force_manual_download then "this_bam=bamfile.cram" else ""}
-    # ~{if force_manual_download then "this_bai=bamfile.cram.crai" else ""}
-
-#     # gatk --java-options "-Xmx~{command_mem}m" PrintReads \
-      # ~{"-R " + ref_fasta} \
-      # ~{"-L " + mt_interval_list} \
-      # ~{"-L " + nuc_interval_list} \
-      # ~{"-L " + contig_name} \
-      # --read-filter MateOnSameContigOrNoMappedMateReadFilter \
-      # --read-filter MateUnmappedAndUnmappedReadFilter \
-      # ~{"--gcs-project-for-requester-pays " + requester_pays_project} \
-      # ~{if force_manual_download then '-I bamfile.cram --read-index bamfile.cram.crai' else "-I ~{d}{this_bam} --read-index ~{d}{this_bai}"} \
-      # -O "~{d}{this_sample}.bam"
-
-#     # echo "Now removing mapping..."
-    # set +e
-    # gatk --java-options "-Xmx~{command_mem}m" ValidateSamFile \
-      # -INPUT "~{d}{this_sample}.bam" \
-      # -O output.txt \
-      # -M VERBOSE \
-      # -IGNORE_WARNINGS true \
-      # -MAX_OUTPUT 9999999
-    # cat output.txt | \
-      # grep 'ERROR.*Mate not found for paired read' | \
-      # sed -e 's/ERROR::MATE_NOT_FOUND:Read name //g' | \
-      # sed -e 's/, Mate not found for paired read//g' > read_list.txt
-    # cat read_list.txt | wc -l | sed 's/^ *//g' > "~{d}{this_sample}.ct_failed.txt"
-    # if [[ $(tr -d "\r\n" < read_list.txt|wc -c) -eq 0 ]]; then
-      # cp "~{d}{this_sample}.bam" rescued.bam
-    # else
-      # gatk --java-options "-Xmx~{command_mem}m" FilterSamReads \
-        # -I "~{d}{this_sample}.bam" \
-        # -O rescued.bam \
-        # -READ_LIST_FILE read_list.txt \
-        # -FILTER excludeReadList
-    # fi
-    # gatk --java-options "-Xmx~{command_mem}m" RevertSam \
-      # -INPUT rescued.bam \
-      # -OUTPUT_BY_READGROUP false \
-      # -OUTPUT "~{d}{this_sample}.unmap.bam" \
-      # -VALIDATION_STRINGENCY LENIENT \
-      # -ATTRIBUTE_TO_CLEAR FT \
-      # -ATTRIBUTE_TO_CLEAR CO \
-      # -SORT_ORDER queryname \
-      # -RESTORE_ORIGINAL_QUALITIES false ~{skip_hardclip_str}
-
-#     # set -e
-    # echo "Now getting WGS metrics on the subsetted bam..."
-    # gatk --java-options "-Xmx~{command_mem}m" CollectWgsMetrics \
-      # INPUT="~{d}{this_sample}.bam" \
-      # ~{"INTERVALS=" + mt_interval_list} \
-      # VALIDATION_STRINGENCY=SILENT \
-      # REFERENCE_SEQUENCE=~{ref_fasta} \
-      # OUTPUT="~{d}{this_sample}.wgs_metrics.txt" \
-      # USE_FAST_ALGORITHM=true \
-      # READ_LENGTH=~{read_length_for_optimization} \
-      # ~{"COVERAGE_CAP=" + coverage_cap} \
-      # INCLUDE_BQ_HISTOGRAM=true \
-      # THEORETICAL_SENSITIVITY_OUTPUT="~{d}{this_sample}.theoretical_sensitivity.txt"
-
-#     # R --vanilla <<CODE
-      # df = read.table("~{d}{this_sample}.wgs_metrics.txt",skip=6,header=TRUE,stringsAsFactors=FALSE,sep='\t',nrows=1)
-      # write.table(floor(df[,"MEAN_COVERAGE"]), "~{d}{this_sample}.mean_coverage.txt", quote=F, col.names=F, row.names=F)
-      # write.table(df[,"MEDIAN_COVERAGE"], "~{d}{this_sample}.median_coverage.txt", quote=F, col.names=F, row.names=F)
-    # CODE
-
-#     # echo "Now preprocessing subsetted bam..."
-    # gatk --java-options "-Xmx~{command_mem}m" MarkDuplicates \
-      # INPUT="~{d}{this_sample}.bam" \
-      # OUTPUT=md.bam \
-      # METRICS_FILE="~{d}{this_sample}.duplicate.metrics" \
-      # VALIDATION_STRINGENCY=SILENT \
-      # ~{"READ_NAME_REGEX=" + read_name_regex} \
-      # OPTICAL_DUPLICATE_PIXEL_DISTANCE=2500 \
-      # ASSUME_SORT_ORDER="queryname" \
-      # CLEAR_DT="false" \
-      # ADD_PG_TAG_TO_READS=false
-
-#     # gatk --java-options "-Xmx~{command_mem}m" SortSam \
-      # INPUT=md.bam \
-      # OUTPUT="~{d}{this_sample}.proc.bam" \
-      # SORT_ORDER="coordinate" \
-      # CREATE_INDEX=true \
-      # MAX_RECORDS_IN_RAM=300000
-  # >>>
-  # runtime {
-    # memory: machine_mem + " GB"
-    # disks: "local-disk " + disk_size + " HDD"
-    # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-    # preemptible: select_first([preemptible_tries, 5])
-    # cpu: select_first([n_cpu,1])
-  # }
-  # output {
-    # File output_bam = "out/~{sample_name}.proc.bam"
-    # File output_bai = "out/~{sample_name}.proc.bai"
-    # File unmapped_bam = "out/~{sample_name}.unmap.bam"
-    # File duplicate_metrics = "out/~{sample_name}.duplicate.metrics"
-    # Int reads_dropped = read_int("out/~{sample_name}.ct_failed.txt")
-    # Int mean_coverage = read_int("out/~{sample_name}.mean_coverage.txt")
-  # }
-# }
 
 
 ###########
@@ -380,33 +176,21 @@ task MongoHC {
     File? nuc_interval_list
     File? force_call_vcf
     File? force_call_vcf_index
-
-    Boolean compress
-    String gatk_version
-    File? gatk_override
-    String? gatk_docker_override
     Float? contamination
 
     Int hc_dp_lower_bound
 
     Int mem
-    Int? preemptible_tries
-    Int? n_cpu
   }
 
   # Mem is in units of GB but our command and memory runtime values are in MB
   Int machine_mem = if defined(mem) then mem * 1000 else 3500
   Int command_mem = machine_mem - 500
 
-  Float ref_size = size(ref_fasta, "GB") + size(ref_fai, "GB") + size(ref_dict, "GB")
-  Int disk_size = ceil((size(input_bam, "GB") * 2) + ref_size) + 22
-
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
   command <<<
     set -e
-
-    # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
     mkdir out
     this_sample=out/"~{sample_name}"
@@ -483,13 +267,6 @@ task MongoHC {
       --create-output-variant-index
   >>>
 
-  runtime {
-    # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-    # memory: machine_mem + " MB"
-    # disks: "local-disk " + disk_size + " HDD"
-    # preemptible: select_first([preemptible_tries, 5])
-    # cpu: select_first([n_cpu,1])
-  }
   output {
     File raw_vcf = "out/~{sample_name}~{suffix}.raw.vcf"
     File raw_vcf_idx = "out/~{sample_name}~{suffix}.raw.vcf.idx"
@@ -523,11 +300,7 @@ task MongoNucM2 {
     Int max_reads_per_alignment_start = 75
     String? m2_extra_args
     Boolean make_bamout = false
-    Boolean compress
-
     File? mt_interval_list
-
-    Float? vaf_cutoff
     String? m2_extra_filtering_args
     Int max_alt_allele_count
     Float? vaf_filter_threshold
@@ -535,25 +308,9 @@ task MongoNucM2 {
     Float? verifyBamID
     File? blacklisted_sites
     File? blacklisted_sites_index
-
-    # runtime
-    File? gatk_override
-    String gatk_version
-    String? gatk_docker_override
     Int mem
-    Int? preemptible_tries
-    Int? n_cpu
   }
-
-  Float ref_size = size(ref_fasta, "GB") + size(ref_fai, "GB")
-  Int disk_size = ceil(size(input_bam, "GB")*2 + ref_size) + 20
   Float defval = 0.0
-
-  # # hc_contamination will be None if hasContamination is not defined (I think) OR contamination_major not defined OR contamination_minor not defined
-  # String hasContamination_2 = select_first([hasContamination,"NOT FOUND"])
-  # Float? hc_contamination = if run_contamination && hasContamination_2 == "YES" then (if contamination_major == 0.0 then contamination_minor else 1.0 - contamination_major) else 0.0
-  # Float hc_contamination_2 = select_first([hc_contamination, 0.0])
-  # Float? max_contamination = if defined(verifyBamID) then (if verifyBamID > hc_contamination_2 then verifyBamID else hc_contamination_2) else hc_contamination_2
 
   # Mem is in units of GB but our command and memory runtime values are in MB
   Int machine_mem = if defined(mem) then mem * 1000 else 3500
@@ -567,17 +324,8 @@ task MongoNucM2 {
   parameter_meta {
     input_bam: "Aligned Bam"
   }
-
-    #if [[ {defined(verifyBamID)} == 'true' ]]; then
-    #  arr_contamination=('~{sep="' '" [select_first([verifyBamID, defval])]}')
-    #else
-    #  arr_contamination=$(printf '0.0 %.0s' {1..~{length([sample_name])}})
-    #fi
-
   command <<<
     set -e
-
-    # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
     echo "Extra arguments for mutect2: ""~{m2_extra_args}""$cust_interval"
 
     mkdir out
@@ -611,8 +359,6 @@ task MongoNucM2 {
       ~{"--f-score-beta " + f_score_beta} \
       --contamination-estimate "~{d}{this_contamination}"
 
-    # ~{"gatk IndexFeatureFile -I " + blacklisted_sites}
-
     gatk --java-options "-Xmx~{command_mem}m" VariantFiltration -V filtered.vcf \
       -O "~{d}{this_basename}.vcf" \
       --apply-allele-specific-filters \
@@ -636,13 +382,6 @@ task MongoNucM2 {
       --keep-original-ac \
       --create-output-variant-index
   >>>
-  runtime {
-    # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-    # memory: machine_mem + " MB"
-    # disks: "local-disk " + disk_size + " HDD"
-    # preemptible: select_first([preemptible_tries, 5])
-    # cpu: select_first([n_cpu,2])
-  }
   output {
     File raw_vcf = "out/~{sample_name}~{suffix}.raw.vcf"
     File raw_vcf_idx = "out/~{sample_name}~{suffix}.raw.vcf.idx"
@@ -681,11 +420,7 @@ task MongoRunM2InitialFilterSplit {
     Int max_reads_per_alignment_start = 75
     String? m2_extra_args
     Boolean make_bamout = false
-    Boolean compress
-
     File? mt_interval_list
-
-    Float? vaf_cutoff
     String? m2_extra_filtering_args
     Int max_alt_allele_count
     Float? vaf_filter_threshold
@@ -693,18 +428,8 @@ task MongoRunM2InitialFilterSplit {
 
     File? blacklisted_sites
     File? blacklisted_sites_index
-
-    # runtime
-    String? gatk_docker_override
-    File? gatk_override
-    String gatk_version
     Int mem
-    Int? preemptible_tries
-    Int? n_cpu
   }
-
-  Float ref_size = size(ref_fasta, "GB") + size(ref_fai, "GB")
-  Int disk_size = (ceil(size(input_bam, "GB") + ref_size) * 2) + 20
   Float defval = 0.0
 
   # Mem is in units of GB but our command and memory runtime values are in MB
@@ -719,17 +444,8 @@ task MongoRunM2InitialFilterSplit {
   parameter_meta {
     input_bam: "Aligned Bam"
   }
-
-    #if [[ {defined(verifyBamID)} == 'true' ]]; then
-    #  arr_contamination=('~{sep="' '" [select_first([verifyBamID, defval])]}')
-    #else
-    #  arr_contamination=$(printf '0.0 %.0s' {1..~{length([sample_name])}})
-    #fi
-
   command <<<
     set -e
-
-    # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
     echo "Extra arguments for mutect2: ""~{m2_extra_args}""$cust_interval"
 
     # We need to create these files regardless, even if they stay empty
@@ -766,8 +482,6 @@ task MongoRunM2InitialFilterSplit {
       ~{"--f-score-beta " + f_score_beta} \
       --contamination-estimate "~{d}{this_contamination}"
 
-    # ~{"gatk IndexFeatureFile -I " + blacklisted_sites}
-
     gatk --java-options "-Xmx~{command_mem}m" VariantFiltration -V filtered.vcf \
       -O "~{d}{this_basename}.filtered.vcf" \
       --apply-allele-specific-filters \
@@ -787,13 +501,6 @@ task MongoRunM2InitialFilterSplit {
       -O "~{d}{this_basename}.splitAndPassOnly.vcf" \
       --exclude-filtered
   >>>
-  runtime {
-    # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-    # memory: machine_mem + " MB"
-    # disks: "local-disk " + disk_size + " HDD"
-    # preemptible: select_first([preemptible_tries, 5])
-    # cpu: select_first([n_cpu,2])
-  }
   output {
     File raw_vcf = "out/~{sample_name}~{suffix}.raw.vcf"
     File raw_vcf_idx = "out/~{sample_name}~{suffix}.raw.vcf.idx"
@@ -815,21 +522,15 @@ task MongoRunM2InitialFilterSplit {
 task MongoM2FilterContaminationSplit {
   input {
     File raw_vcf
-    File raw_vcf_index
     File raw_vcf_stats
     String sample_name
     String hasContamination
     Float contamination_major
     Float contamination_minor
     Float? verifyBamID
-
-    Boolean run_contamination
     File ref_fasta
     File ref_fai
     File ref_dict
-
-    Boolean compress
-    Float? vaf_cutoff
     String suffix
 
     String? m2_extra_filtering_args
@@ -839,23 +540,9 @@ task MongoM2FilterContaminationSplit {
 
     File? blacklisted_sites
     File? blacklisted_sites_index
-
-    File? gatk_override
-    String? gatk_docker_override
-    String gatk_version
-
-  # runtime
-    Int? preemptible_tries
   }
-
-  Float ref_size = size(ref_fasta, "GB") + size(ref_fai, "GB")
-  Int disk_size = ceil(size(raw_vcf, "GB") + ref_size) + 20
   Float defval = 0.0
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
-
-  # hc_contamination will be None if hasContamination is not defined (I think) OR contamination_major not defined OR contamination_minor not defined
-  #Float hc_contamination = if hasContamination == "YES" then (if contamination_major == 0.0 then contamination_minor else 1.0 - contamination_major) else 0.0
-  #Float? max_contamination = if defined(verifyBamID) then (if verifyBamID > hc_contamination then verifyBamID else hc_contamination) else hc_contamination
 
   meta {
     description: "Mutect2 Filtering for calling Snps and Indels"
@@ -864,17 +551,8 @@ task MongoM2FilterContaminationSplit {
       vaf_filter_threshold: "Hard cutoff for minimum allele fraction. All sites with VAF less than this cutoff will be filtered."
       f_score_beta: "F-Score beta balances the filtering strategy between recall and precision. The relative weight of recall to precision."
   }
-
-    #if [[ {defined(verifyBamID)} == 'true' ]]; then
-    #  arr_verifybam_contamination=('~{sep="' '" [select_first([verifyBamID, defval])]}')
-    #else
-    #  arr_verifybam_contamination=$(printf '0.0 %.0s' {1..~{length([sample_name])}})
-    #fi
-
   command <<<
     set -e
-
-    #export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
     mkdir out
 
@@ -922,11 +600,8 @@ task MongoM2FilterContaminationSplit {
       ~{"--min-allele-fraction " + vaf_filter_threshold} \
       ~{"--f-score-beta " + f_score_beta} \
       --contamination-estimate "~{d}{this_max_contamination}"
-
-    #~{"gatk IndexFeatureFile -I " + blacklisted_sites}
     # The static blacklist BED and its GATK index are supplied as workflow inputs.
     # Do not regenerate the index here: Cromwell may hard-link localized inputs.
-    # gatk IndexFeatureFile -I "~{blacklisted_sites}"
 
     gatk --java-options "-Xmx2500m" VariantFiltration \
       -V filtered.vcf \
@@ -945,13 +620,6 @@ task MongoM2FilterContaminationSplit {
       --create-output-variant-index
 
   >>>
-  runtime {
-      # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-      # memory: "4 MB"
-      # disks: "local-disk " + disk_size + " HDD"
-      # preemptible: select_first([preemptible_tries, 5])
-      # cpu: 2
-  }
   output {
     File filtered_vcf = "out/~{sample_name}~{suffix}.vcf"
     File filtered_vcf_idx = "out/~{sample_name}~{suffix}.vcf.idx"
@@ -976,7 +644,6 @@ task MongoCallMtAndShifted {
     File input_bai
     File mt_interval_list
     File force_call_vcf
-    File force_call_vcf_idx
 
     File shifted_mt_self
     File shifted_mt_self_index
@@ -985,27 +652,15 @@ task MongoCallMtAndShifted {
     File shifted_input_bai
     File shifted_mt_interval_list
     File shifted_force_call_vcf
-    File shifted_force_call_vcf_idx
 
     String? m2_extra_args
     String? shifted_m2_extra_args
 
     Int max_reads_per_alignment_start = 75
     Boolean make_bamout = false
-    Boolean compress
     String suffix
-
-    # runtime
-    File? gatk_override
-    String gatk_version
-    String? gatk_docker_override
     Int mem
-    Int? preemptible_tries
-    Int? n_cpu
   }
-
-  Float ref_size = size(mt_self, "GB") + size(mt_self_index, "GB") + size(shifted_mt_self, "GB") + size(shifted_mt_self_index, "GB")
-  Int disk_size = ceil(size(input_bam, "GB") + size(shifted_input_bam, "GB") + ref_size) + 20
 
   # Mem is in units of GB but our command and memory runtime values are in MB
   Int machine_mem = if defined(mem) then mem * 1000 else 3500
@@ -1021,8 +676,6 @@ task MongoCallMtAndShifted {
   }
   command <<<
     set -e
-
-    # export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
     echo "Extra arguments for mutect2: ""~{m2_extra_args}""$cust_interval"
 
     mkdir out
@@ -1089,13 +742,6 @@ task MongoCallMtAndShifted {
       --max-mnp-distance 0 ~{d}{shiftedbamoutstr}
 
   >>>
-  runtime {
-      # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-      # memory: machine_mem + " MB"
-      # disks: "local-disk " + disk_size + " HDD"
-      # preemptible: select_first([preemptible_tries, 5])
-      # cpu: select_first([n_cpu,2])
-  }
   output {
     File raw_vcf = "out/~{sample_base_name}~{suffix}.raw.vcf"
     File raw_vcf_idx = "out/~{sample_base_name}~{suffix}.raw.vcf.idx"
@@ -1136,22 +782,12 @@ task MongoLiftoverCombineMergeFilterContamSplit {
     Float? verifyBamID
     File blacklisted_sites
     File blacklisted_sites_index
-
-    Boolean compress
-    Float? vaf_cutoff
     String? m2_extra_filtering_args
     Int max_alt_allele_count
     Float? vaf_filter_threshold
     Float? f_score_beta
 
-    Int? preemptible_tries
-    File? gatk_override
-    String? gatk_docker_override
-    String gatk_version
   }
-
-  Float ref_size = size(mt_self, "GB") + size(mt_self_index, "GB")
-  Int disk_size = ceil(size(shifted_vcf, "GB")*4 + ref_size) + 30
   Float defval = 0.0
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
@@ -1164,17 +800,8 @@ task MongoLiftoverCombineMergeFilterContamSplit {
     mt_self: "Original (not shifted) chrM reference"
     shift_back_chain: "Chain file to lift over from shifted reference to original chrM"
   }
-
-    #if [[ {defined(verifyBamID)} == 'true' ]]; then
-    #  arr_verifybam_contamination=('~{sep="' '" [select_first([verifyBamID, defval])]}')
-    #else
-    #  arr_verifybam_contamination=$(printf '0.0 %.0s' {1..~{length([sample_base_name])}})
-    #fi
-    # Note that the perl below removes the ##contig=chrM style line from the file
   command<<<
     set -e
-
-    #export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
     mkdir out
 
@@ -1279,21 +906,7 @@ task MongoLiftoverCombineMergeFilterContamSplit {
     File split_vcf_idx = "out/~{sample_base_name}~{suffix}.split.vcf.idx"
     Float contamination = read_float('out/~{sample_base_name}~{suffix}.r2.hc_contam.txt') # now an optional output, producing UNDEFINED if not computed
   }
-  runtime {
-      # docker: select_first([gatk_docker_override, "us.gcr.io/broad-gatk/gatk:"+gatk_version])
-      # memory: "1200 MB"
-      # disks: "local-disk " + disk_size + " HDD"
-      # preemptible: select_first([preemptible_tries, 5])
-  }
 }
-
-
-
-############################
-############################
-## Runtime: gcloud_docker ##
-############################
-############################
 
 
 #############################
@@ -1322,12 +935,8 @@ task MongoProduceSelfReference {
     File check_hom_overlap_script
     File hail_force_call_script
     File self_reference_helper_script
-    Int? preemptible_tries
 
     Int n_shift
-
-    String genomes_cloud_docker
-    String intertext
   }
 
   String mt_intervals_basename = basename(mt_interval_list, ".interval_list")
@@ -1339,13 +948,6 @@ task MongoProduceSelfReference {
     set -e
 
     mkdir out
-
-    # java -jar /usr/gitc/picard.jar IntervalListTools SORT=true I=~{mt_interval_list} O=internal_mt.interval_list
-    # java -jar /usr/gitc/picard.jar IntervalListTools SORT=true I=~{nuc_interval_list} O=internal_nuc.interval_list
-    # java -jar /usr/gitc/picard.jar ExtractSequences \
-    #  INTERVAL_LIST=internal_mt.interval_list \
-    #  R=~{mt_ref_fasta} \
-    #  O=mt_fasta.fasta
 
 
     gatk --java-options "-Xmx1000m" IntervalListTools \
@@ -1434,12 +1036,6 @@ task MongoProduceSelfReference {
     bcftools consensus -s "${this_samp_name}" -H A -f mt_fasta_renamed.fasta -o mt_fasta_lifted.fasta -c "~{d}{this_mt_chain}" "~{d}{this_filt_vcf}.gz"
     Rscript --vanilla ~{fa_renaming_script} mt_fasta_lifted.fasta internal_mt.interval_list TRUE "~{d}{this_mt_fasta}" TRUE
     
-    
-    # java -Xmx1000m -jar /usr/gitc/picard.jar \
-    #  CreateSequenceDictionary \
-    #  REFERENCE="~{d}{this_mt_fasta}" \
-    #  OUTPUT="~{d}{this_basename}.dict"
-    
     gatk --java-options "-Xmx1000m" CreateSequenceDictionary \
     -R "~{d}{this_mt_fasta}" \
     -O "~{d}{this_basename}.dict"
@@ -1456,11 +1052,6 @@ task MongoProduceSelfReference {
       exit 1;
     fi
     cat ./intersected_vcfs/0002.vcf | grep ^chr | wc -l | sed 's/^ *//g' > "~{d}{this_sample}.nuc.removed.txt"
-
-    #java -jar /usr/gitc/picard.jar ExtractSequences \
-    #  INTERVAL_LIST=internal_nuc.interval_list \
-    #  R=~{ref_fasta} \
-    #  O=nuc_fasta.fasta
     
     gatk --java-options "-Xmx1000m" ExtractSequences \
     --INTERVAL_LIST internal_nuc.interval_list \
@@ -1474,24 +1065,12 @@ task MongoProduceSelfReference {
     bcftools consensus -s "${this_samp_name}" -H A -f nuc_fasta_renamed.fasta -o nuc_fasta_lifted.fasta -c "~{d}{this_nuc_chain}" filtered_nuc_vcf.gz
     Rscript --vanilla ~{fa_renaming_script} nuc_fasta_lifted.fasta internal_nuc.interval_list TRUE "~{d}{this_nuc_only_fasta}" FALSE
     cat "~{d}{this_nuc_only_fasta}" "~{d}{this_mt_fasta}" > "~{d}{this_nuc_mt_fasta}"
-    #/usr/gitc/bwa index ~{d}{this_nuc_mt_fasta}
-    
-    
-    #java -Xmx1000m -jar /usr/gitc/picard.jar \
-    #  CreateSequenceDictionary \
-    #  REFERENCE="~{d}{this_nuc_mt_fasta}" \
-    #  OUTPUT="~{d}{this_basename_both}.dict"
     
     gatk --java-options "-Xmx1000m" CreateSequenceDictionary \
     -R "~{d}{this_nuc_mt_fasta}" \
     -O "~{d}{this_basename_both}.dict"
 
     samtools faidx "~{d}{this_nuc_mt_fasta}"
-
-    #java -Xmx1000m -jar /usr/gitc/picard.jar \
-    #  CreateSequenceDictionary \
-    #  REFERENCE="~{d}{this_nuc_only_fasta}" \
-    #  OUTPUT="~{d}{this_basename_nuc}.dict"
 
     gatk --java-options "-Xmx1000m" CreateSequenceDictionary \
     -R "~{d}{this_nuc_only_fasta}" \
@@ -1507,24 +1086,12 @@ task MongoProduceSelfReference {
       "~{d}{this_chain_fwd_shifted}"
 
     cat "~{d}{this_fasta_shifted}" "~{d}{this_nuc_only_fasta}" > "~{d}{this_fasta_cat_shifted}"
-
-    #/usr/gitc/bwa index ~{d}{this_fasta_cat_shifted}
-    
-    #java -Xmx1000m -jar /usr/gitc/picard.jar \
-    #  CreateSequenceDictionary \
-    #  REFERENCE="~{d}{this_fasta_cat_shifted}" \
-    #  OUTPUT="~{d}{this_shifted_basename_append}.dict"
     
     gatk --java-options "-Xmx1000m" CreateSequenceDictionary \
     -R "~{d}{this_fasta_cat_shifted}" \
     -O "~{d}{this_shifted_basename_append}.dict"   
     
     samtools faidx "~{d}{this_fasta_cat_shifted}"
-
-    #java -Xmx1000m -jar /usr/gitc/picard.jar \
-    #  CreateSequenceDictionary \
-    #  REFERENCE="~{d}{this_fasta_shifted}" \
-    #  OUTPUT="~{d}{this_shifted_basename}.dict"
     
     gatk --java-options "-Xmx1000m" CreateSequenceDictionary \
     -R "~{d}{this_fasta_shifted}" \
@@ -1539,12 +1106,6 @@ task MongoProduceSelfReference {
       "~{d}{this_mt_intervals}"
 
     echo "Now shifting the noncontrol region..."
-    
-    #java -jar /usr/gitc/picard.jar LiftOverIntervalList \
-    #  I="~{non_control_region_interval_list}" \
-    #  O="~{d}{this_nonctrl_interval}" \
-    #  SD="~{d}{this_basename}.dict" \
-    #  CHAIN="~{d}{this_mt_chain}"
 
     gatk --java-options "-Xmx1000m" LiftOverIntervalList \
     -I "~{non_control_region_interval_list}" \
@@ -1579,71 +1140,6 @@ task MongoProduceSelfReference {
       --output-filter-vcf "~{d}{this_vcf_filters_bgz}" \
       --output-shifted-vcf "~{d}{this_vcf_shifted_bgz}"
 
-    # Original inline Python retained temporarily while validating the extracted script.
-    # "$HAIL_PYTHON" <<CODE
-    # import hail as hl
-    #
-    # def fai_to_len(fai):
-    #     with open(fai) as f:
-    #         line = f.readline()
-    #     return int(line.split('\t')[1])
-    #
-    # def check_vcf_integrity(mt):
-    #     # check that locus, alleles are the two key fields
-    #     if sorted(list(mt.row_key)) != ['alleles', 'locus']:
-    #         raise ValueError('VCFs must always be keyed by locus, alleles.')
-    #
-    #     # check that all sites are bi-allelic
-    #     if mt.aggregate_rows(~hl.agg.all(hl.len(mt.alleles) == 2)):
-    #         raise ValueError('This function only supports biallelic sites (run SplitMultiAllelics!)')
-    #
-    #     # check that there is no missingness in locus
-    #     if mt.aggregate_rows(~hl.agg.all(hl.is_defined(mt.locus))):
-    #         raise ValueError('ERROR: locus must always be defined, both before and after Liftover. This should be a reversible operation, thus finding missing loci after reverse liftover is very concerning.')
-    #
-    #     # check that there is no missingness in alleles
-    #     if mt.aggregate_rows(~hl.agg.all(hl.all(hl.map(hl.is_defined, mt.alleles)))):
-    #         raise ValueError('ERROR: alleles should always be defined.')
-    #
-    # def apply_conversion(mt, liftover_target, skip_flip=False):
-    #     mt_lifted = mt.annotate_rows(new_locus = hl.liftover(mt.locus, liftover_target))
-    #     if skip_flip:
-    #       mt_lifted = mt_lifted.annotate_rows(allele_flip = mt_lifted.alleles)
-    #     else:
-    #       mt_lifted = mt_lifted.annotate_rows(allele_flip = hl.reversed(mt_lifted.alleles))
-    #     mt_lifted = mt_lifted.key_rows_by().rename({'locus':'locus_orig', 'alleles':'alleles_orig'}).rename({'new_locus':'locus', 'allele_flip': 'alleles'}).key_rows_by('locus','alleles')
-    #     mt_lifted = mt_lifted.drop('locus_orig', 'alleles_orig')
-    #
-    #     return mt_lifted
-    #
-    # target = hl.ReferenceGenome("target_self", ['chrM'], {'chrM':fai_to_len("~{d}{this_mt_fasta}.fai")}, mt_contigs=['chrM'])
-    # source = hl.ReferenceGenome('mtGRCh38', ['chrM'], {'chrM':fai_to_len("~{mt_ref_fasta_index}")}, mt_contigs=['chrM'])
-    # target.add_sequence("~{d}{this_mt_fasta}", "~{d}{this_mt_fasta}.fai")
-    # source.add_sequence("~{mt_ref_fasta}", "~{mt_ref_fasta_index}")
-    # source.add_liftover("~{d}{this_mt_chain}", "target_self")
-    # shifted_target = hl.ReferenceGenome("target_self_shifted", ['chrM'], {'chrM':fai_to_len("~{d}{this_fasta_shifted}.fai")}, mt_contigs=['chrM'])
-    # shifted_target.add_sequence("~{d}{this_fasta_shifted}", "~{d}{this_fasta_shifted}.fai")
-    # target.add_liftover("~{d}{this_chain_fwd_shifted}", shifted_target)
-    #
-    # mt_new = hl.import_vcf("~{d}{this_filt_vcf}", reference_genome='mtGRCh38').select_entries()
-    # check_vcf_integrity(mt_new)
-    #
-    # mt_new_1 = mt_new.select_rows()
-    # mt_lifted_target = apply_conversion(mt_new_1, "target_self")
-    # check_vcf_integrity(mt_lifted_target)
-    # hl.export_vcf(mt_lifted_target, "~{d}{this_vcf_bgz}", tabix=True)
-    #
-    # mt_new_2 = mt_new.select_rows('filters')
-    # this_metadata = hl.get_vcf_metadata("~{d}{this_filt_vcf}")
-    # this_metadata = {'filter': this_metadata['filter']}
-    # mt_lifted_target_withfilter = apply_conversion(mt_new_2, "target_self")
-    # check_vcf_integrity(mt_lifted_target_withfilter)
-    # hl.export_vcf(mt_lifted_target_withfilter, "~{d}{this_vcf_filters_bgz}", tabix=True, metadata=this_metadata)
-    #
-    # mt_lifted_shifted_target = apply_conversion(mt_lifted_target, "target_self_shifted", skip_flip=True)
-    # check_vcf_integrity(mt_lifted_shifted_target)
-    # hl.export_vcf(mt_lifted_shifted_target, "~{d}{this_vcf_shifted_bgz}", tabix=True)
-    # CODE
   >>>
 
   output {
@@ -1690,12 +1186,6 @@ task MongoProduceSelfReference {
     File reversed_hom_vcf_shifted_idx = "out/~{sample_name}~{suffix}.reversed.selfRef.shifted.homoplasmies.vcf.bgz.tbi"
   }
 
-  runtime {
-    #docker: genomes_cloud_docker
-    #memory: "2 GB"
-    #disks: "local-disk 25 HDD"
-    #preemptible: select_first([preemptible_tries, 5])
-  }
 }
 
 
@@ -1735,15 +1225,10 @@ task MongoAlignToMtRegShiftedAndMetrics {
     Int? coverage_cap
     Int? n_cpu
 
-    Int? preemptible_tries
-    String genomes_cloud_docker
   }
 
   Int this_cpu = select_first([n_cpu, 2])
   String this_bwa_commandline = bwa_commandline + " -t " + this_cpu
-  Float ref_size = size(mt_cat, "GB") + size(mt_cat_index, "GB")
-  Float shifted_ref_size = size(mt_shifted_cat, "GB") + size(mt_shifted_cat_index, "GB")
-  Int disk_size = ceil(size(input_bam, "GB") * 4 + ref_size * 4 + shifted_ref_size * 4) + 20
 
   Int read_length_for_optimization = select_first([read_length, 151])
   String this_output_bam_basename = basename(input_bam, '.bam') + ".remap" + suffix
@@ -1757,8 +1242,6 @@ task MongoAlignToMtRegShiftedAndMetrics {
     input_bam: "Unmapped bam"
   }
   command <<<
-
-    #export BWAVERSION=$(/usr/gitc/bwa 2>&1 | grep -e '^Version' | sed 's/Version: //')
     export BWAVERSION=$(bwa 2>&1 | grep -e '^Version' | sed 's/Version: //')
 
     set -o pipefail
@@ -1778,7 +1261,6 @@ task MongoAlignToMtRegShiftedAndMetrics {
     this_mt_shifted_dict="~{mt_shifted_dict}"
 
     # set the bash variable needed for the command-line
-    #/usr/gitc/bwa index "~{d}{this_mt_cat_fasta}"
     bwa index "~{d}{this_mt_cat_fasta}"
 
     bash_ref_fasta="~{d}{this_mt_cat_fasta}"
@@ -1928,13 +1410,6 @@ task MongoAlignToMtRegShiftedAndMetrics {
       "~{d}{this_sample}_r2_mean_coverage.txt" \
       "~{d}{this_sample}_r2_median_coverage.txt"
   >>>
-  runtime {
-    #preemptible: select_first([preemptible_tries, 5])
-    #memory: "6 GB"
-    #cpu: this_cpu
-    #disks: "local-disk " + disk_size + " HDD"
-    #docker: genomes_cloud_docker
-  }
   output {
     File mt_aligned_bam = "out/~{this_output_bam_basename}.bam"
     File mt_aligned_bai = "out/~{this_output_bam_basename}.bai"
@@ -1994,16 +1469,7 @@ task MongoLiftoverVCFAndGetCoverage {
     File ref_fasta
     File ref_fasta_index
     File ref_dict
-
-    # runtime
-    Int? n_cpu
-    Int? preemptible_tries
-    String genomes_cloud_docker
   }
-
-  Float ref_size = size(ref_fasta, "GB") + size(ref_fasta_index, "GB") + size(mt_self, "GB") + size(mt_self_shifted, "GB")
-  Float bam_size = size(input_bam_regular_ref, 'GB') + size(input_bam_shifted_ref, 'GB')
-  Int disk_size = ceil(bam_size) + ceil(size(original_filtered_vcf, "GB") + size(new_self_ref_vcf, "GB") + size(reversed_hom_ref_vcf, "GB") + ref_size) *2 + 20
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
   command <<<
@@ -2149,13 +1615,6 @@ task MongoLiftoverVCFAndGetCoverage {
     paste -d "\t" "~{d}{this_basename}.round2liftover.all_int_outputs.txt" <(printf "n_liftover_changed_selfref_and_passed\n$(cat ~{d}{this_sample}_n_ref_pass_thru.txt)\n") <(printf "n_liftover_r1_pass\n$(cat ~{d}{this_sample}_n_pass.txt)\n") <(printf "n_liftover_r2_pass\n$(cat ~{d}{this_sample}_n_final_pass.txt)\n") > "~{d}{this_basename}.round2liftover.all_int_outputs.final.txt"
   >>>
 
-  runtime {
-    #disks: "local-disk " + disk_size + " HDD"
-    #memory: "3000 MB"
-    #cpu: select_first([n_cpu, 2])
-    #docker: genomes_cloud_docker
-    #preemptible: select_first([preemptible_tries, 5])
-  }
 
   output {
     File liftover_r1_rejected_vcf = "out/~{sample_name}~{self_suffix}.split.selfToRef.rejected.vcf"
@@ -2198,13 +1657,8 @@ task CreateSpanIntervalsWithDict {
     File target_dict
     File self_reference_helper_script
     String intertext
-    String genomes_cloud_docker
 
-    Int? preemptible_tries
   }
-
-  Float ref_size = size(target_dict, "GB")
-  Int disk_size = ceil(size(input_intervals, "GB")*2 + ref_size)*2 + 10
   String output_intervals = basename(input_intervals, ".interval_list") + intertext + ".SelfRefLiftover.interval_list"
 
   command <<<
@@ -2216,12 +1670,6 @@ task CreateSpanIntervalsWithDict {
     File lifted_intervals = "~{output_intervals}"
   }
 
-  runtime {
-    #disks: "local-disk " + disk_size + " HDD"
-    #memory: "500 MB"
-    #docker: genomes_cloud_docker
-    #preemptible: select_first([preemptible_tries, 5])
-  }
 }
 
 
@@ -2234,12 +1682,8 @@ task MoveChainToZero {
     File source_chain
     File ref_intervals
     File self_reference_helper_script
-    String genomes_cloud_docker
 
-    Int? preemptible_tries
   }
-
-  Int disk_size = ceil(size(source_chain, "GB")*2.5)
   String output_chain = basename(source_chain, ".chain") + ".toZero.chain"
 
   command <<<
@@ -2251,12 +1695,6 @@ task MoveChainToZero {
     File chain = "~{output_chain}"
   }
 
-  runtime {
-    #disks: "local-disk " + disk_size + " HDD"
-    #memory: "1 MB"
-    #docker: genomes_cloud_docker
-    #preemptible: select_first([preemptible_tries, 5])
-  }
 }
 
 
@@ -2284,11 +1722,8 @@ task NucCoverageAtEveryBase {
     File self_shifted_fasta
     File self_shifted_fasta_index
     File self_shifted_dict
-    String genomes_cloud_docker
 
-    Int? preemptible_tries
   }
-  Int disk_size = ceil(size(input_bam_regular_ref, "GB") + size(input_bam_self_ref, "GB") + size(ref_fasta, "GB") * 2) + 20
 
   meta {
     description: "Mainly for QC to understand how NUMT coverage changes with remapping."
@@ -2326,12 +1761,6 @@ task NucCoverageAtEveryBase {
       --COVERAGE_CAP 20000 \
       --SAMPLE_SIZE 1
   >>>
-  runtime {
-    #disks: "local-disk " + disk_size + " HDD"
-    #memory: "1200 MB"
-    #docker: genomes_cloud_docker
-    #preemptible: select_first([preemptible_tries, 5])
-  }
   output {
     File table_old_ref = "reference_pre_realignment.tsv"
     File table_new_self = "self_post_realignment.tsv"
@@ -2358,10 +1787,7 @@ task MergeMultiSampleOutputs {
 
     File MergePerBatch
     File coverage_helpers_script
-    Int? preemptible_tries
   }
-
-  Int disk_size = ceil(size(variant_vcf, "GB") + size(coverage_table, "GB") + size(statistics, "GB") * 2) + 20
 
   command <<<
     set -e
@@ -2409,19 +1835,7 @@ task MergeMultiSampleOutputs {
     File merged_calls = "batch_merged_mt_calls.vcf.bgz"
   }
 
-  runtime {
-    # disks: "local-disk " + disk_size + " HDD"
-    # memory: "2 GB"
-    # docker: genomes_cloud_docker
-    # preemptible: select_first([preemptible_tries, 5])
-  }
 }
-
-##########################
-##########################
-## Runtime: ucsc_docker ##
-##########################
-##########################
 
 
 #############################
@@ -2435,12 +1849,7 @@ task MongoChainSwapLiftoverBed {
 
     String input_source_name
     File input_bed
-    File input_bed_index
-    Int? preemptible_tries
-    String ucsc_docker
   }
-
-  Int disk_size = ceil(size(source_chain, "GB") + size(input_bed, "GB") * 2.5) * 4
   String this_bed_basename = basename(input_bed, '.bed')
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
@@ -2456,7 +1865,6 @@ task MongoChainSwapLiftoverBed {
 
     chainSwap "~{d}{this_chain}" "~{d}{this_target_path}_to_~{input_source_name}.chain"
     liftOver ~{input_bed} "~{d}{this_chain}" "~{d}{this_base_path}.~{d}{this_target_sample}.liftedOver.bed" "~{d}{this_base_path}.~{d}{this_target_sample}.liftedOverRejects.unmapped"
-    # $igvtools index "~{d}{this_base_path}.~{d}{this_target_sample}.liftedOver.bed"
     igvtools index "~{d}{this_base_path}.~{d}{this_target_sample}.liftedOver.bed"
   >>>
 
@@ -2467,12 +1875,6 @@ task MongoChainSwapLiftoverBed {
     File rejected = "out/~{this_bed_basename}.~{input_target_name}.liftedOverRejects.unmapped"
   }
 
-  runtime {
-    # disks: "local-disk " + disk_size + " HDD"
-    # memory: "1 GB"
-    # docker: ucsc_docker
-    # preemptible: select_first([preemptible_tries, 5])
-  }
 }
 
 
@@ -2503,11 +1905,7 @@ task MongoLiftoverSelfAndCollectOutputs {
     Int mtdna_consensus_overlaps
     Int nuc_consensus_overlaps
 
-    String ucsc_docker
-    Int? preemptible_tries
   }
-
-  Int disk_size = ceil(size(self_ref_table, "GB") * 4) + 20
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
   command <<<
@@ -2562,12 +1960,6 @@ task MongoLiftoverSelfAndCollectOutputs {
     File table = "out/~{sample_name}_mtanalysis_diagnostic_statistics.tsv"
   }
 
-  runtime {
-    # disks: "local-disk " + disk_size + " HDD"
-    # memory: "2 GB"
-    # docker: ucsc_docker
-    # preemptible: select_first([preemptible_tries, 5])
-  }
 }
 
 
@@ -2581,11 +1973,7 @@ task ChainSwap {
     File source_chain
     String input_source_name
     String input_target_name
-    Int? preemptible_tries
-    String ucsc_docker
   }
-
-  Int disk_size = ceil(size(source_chain, "GB")) * 4
   String chain_output = input_target_name + "_to_" + input_source_name + ".chain"
 
   command {
@@ -2596,12 +1984,6 @@ task ChainSwap {
     File chain = "~{chain_output}"
   }
 
-  runtime {
-    # disks: "local-disk " + disk_size + " HDD"
-    # memory: "1 GB"
-    # docker: ucsc_docker
-    # preemptible: select_first([preemptible_tries, 5])
-  }
 }
 
 
@@ -2618,10 +2000,7 @@ task LiftOverAndJoinCoverage {
     File self_table_shifted
     File? chain
     File coverage_helpers_script
-    Int? preemptible_tries
-    Int? mem
     Boolean? use_fast_join = true
-    String ucsc_docker
   }
 
   String this_basename = basename(self_table, '.tsv')
@@ -2630,11 +2009,6 @@ task LiftOverAndJoinCoverage {
   String rejects = this_basename + ".nuc.liftedOver.unmapped"
   String rejects_shifted = this_basename + ".shifted.nuc.liftedOver.unmapped"
   String final_tsv = this_basename + ".nuc.appended.liftedOver.tsv"
-  Int disk_size = ceil(size(self_table, "GB") * 4) + 20
-
-  # for an attempted speed up, we removed the following from below:
-  # joint_bed <- merge(ref_pre_bed$tab, self_lifted_bed$tab, by=c('chr', 'start', 'end'), all=TRUE)
-  # joint_bed <- merge(joint_bed, self_lifted_shifted_bed$tab, by=c('chr', 'start', 'end'), all=TRUE)
 
   command <<<
     tail -n +2 ~{self_table} | awk '{OFS="\t"} {print $1"\t"$2-1"\t"$2"\t"$4"\t"$3}' > per_base_coverage.bed
@@ -2662,21 +2036,7 @@ task LiftOverAndJoinCoverage {
     File rejected_shifted = "~{rejects_shifted}"
   }
 
-  runtime {
-    # disks: "local-disk " + disk_size + " HDD"
-    # memory: select_first([mem, 500]) + " MB"
-    # docker: ucsc_docker
-    # preemptible: select_first([preemptible_tries, 5])
-  }
 }
-
-
-
-###########################
-###########################
-## Runtime: haplo_docker ##
-###########################
-###########################
 
 
 ####################
@@ -2689,12 +2049,7 @@ task GetContamination {
     File haplocheck_cli
     String sample_name
     Int mean_coverage
-    # runtime
-    String haplochecker_docker
-    Int? preemptible_tries
   }
-
-  Int disk_size = ceil(size(input_vcf, "GB")) + 20
   String d = "$" # a stupid trick to get ${} indexing in bash to work in Cromwell
 
   meta {
@@ -2762,12 +2117,6 @@ task GetContamination {
     echo "0.000" > "~{d}{this_basename}.mean_het_minor.txt"
   fi
   >>>
-  runtime {
-    #preemptible: select_first([preemptible_tries, 5])
-    #memory: "3 GB"
-    #disks: "local-disk " + disk_size + " HDD"
-    #docker: haplochecker_docker
-  }
   output {
     File contamination_file = "out/~{sample_name}_output_noquotes"
     String hasContamination = read_string("out/~{sample_name}.contamination.txt")

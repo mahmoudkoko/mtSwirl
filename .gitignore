@@ -3,6 +3,7 @@ inputs/wgs/**
 
 # outputs
 /outputs/**
+/temp/
 /cromwell-outputs/**
 /cromwell-executions/**
 /cromwell-logs/**

@@ -9,6 +9,5 @@
   "MitochondriaPipeline.blacklisted_sites_index": "resources/files/blacklist_sites.hg38.chrM.bed.idx",
   "MitochondriaPipeline.nuc_interval_list": "resources/files/NUMTv3_all385.hg38.interval_list",
   "MitochondriaPipeline.mt_interval_list": "resources/files/chrM.hg38.interval_list",
-  "MitochondriaPipeline.control_region_shifted_reference_interval_list": "resources/files/control_region_shifted.chrM.interval_list",
   "MitochondriaPipeline.non_control_region_interval_list": "resources/files/non_control_region.chrM.interval_list"
 }

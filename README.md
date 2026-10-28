@@ -355,6 +355,20 @@ bash run_swirl_pipeline.sh \
   --validate-only
 ```
 
+The local Cromwell backend defaults to one concurrent task, as configured in
+`inputs/config/cromwell-local-single.conf`. Override that limit for a run with
+`--max-concurrent-jobs N`, for example:
+
+```bash
+bash run_swirl_pipeline.sh \
+  --sample-manifest inputs/test/samples.tsv \
+  --max-concurrent-jobs 4
+```
+
+`N` must be a positive integer. This limits concurrent Cromwell tasks, not
+specifically the number of samples; task dependencies and available resources
+also affect scheduling.
+
 `SwirlPipeline.wdl` scatters the internal per-sample workflow across manifest
 rows, then merges per-sample VCFs, coverage tables, and statistics. Curated
 merged outputs and per-sample final VCF/coverage/statistics files are copied
@@ -362,8 +376,10 @@ beneath `cromwell-outputs/<workflow-id>/`.
 New Cromwell execution directories use the declared workflow name and will be
 under `cromwell-executions/SwirlPipeline/<workflow-id>/`; existing runs under
 the old workflow name are unchanged.
-The current local Cromwell config limits execution to one task at a time, so
-the scatter runs sequentially unless that config is changed.
+The local Cromwell config limits execution to one task at a time by default;
+use `--max-concurrent-jobs` to override the limit for an individual run.
+Temporary input-processing files are created under the repository-root
+`temp/` directory and removed when the runner exits.
 
 
 ### Outputs and cleanup

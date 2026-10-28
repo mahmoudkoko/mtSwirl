@@ -2,9 +2,10 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s [--validate-only] [--test-run | --sample-manifest FILE] [--configs-json FILE] [--files-json FILE] [--scripts-json FILE]\n' "$0" >&2
+  printf 'Usage: %s [--validate-only] [--test-run | --sample-manifest FILE] [--max-concurrent-jobs N] [--configs-json FILE] [--files-json FILE] [--scripts-json FILE]\n' "$0" >&2
   printf 'Use --sample-manifest to specify a CSV, TSV, or TXT sample manifest.\n' >&2
   printf 'Use --test-run to run with the bundled two-sample manifest at inputs/test/samples.tsv.\n' >&2
+  printf 'Use --max-concurrent-jobs N to override the local Cromwell task concurrency limit.\n' >&2
   printf 'Uses the packaged JSON files configured in inputs/json/pipeline_configs.json by default.\n' >&2
 }
 
@@ -15,6 +16,7 @@ files_json=""
 scripts_json=""
 manifest=""
 manifest_seen=false
+max_concurrent_jobs=""
 
 while (($#)); do
   case "$1" in
@@ -39,6 +41,15 @@ while (($#)); do
       fi
       manifest=$2
       manifest_seen=true
+      shift 2
+      ;;
+    --max-concurrent-jobs)
+      if (($# < 2)); then
+        printf 'Option --max-concurrent-jobs requires a positive integer.\n' >&2
+        usage
+        exit 2
+      fi
+      max_concurrent_jobs=$2
       shift 2
       ;;
     --configs-json|--files-json|--scripts-json)
@@ -70,6 +81,14 @@ while (($#)); do
   esac
 done
 
+if [[ -n $max_concurrent_jobs ]] &&
+  { [[ ! $max_concurrent_jobs =~ ^[1-9][0-9]*$ ]] ||
+    ((${#max_concurrent_jobs} > 10)) ||
+    ((10#$max_concurrent_jobs > 20)); }; then
+  printf 'Option --max-concurrent-jobs must be an integer between 1 and 20.\n' >&2
+  exit 2
+fi
+
 if [[ $test_run == true && $manifest_seen == true ]]; then
   printf 'Do not combine --test-run with --sample-manifest; --test-run uses the bundled test manifest.\n' >&2
   usage
@@ -81,7 +100,8 @@ if [[ $test_run == false && $manifest_seen == false ]]; then
   exit 2
 fi
 
-repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+script_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+repo_root=$(cd -- "$(dirname -- "$script_path")" && pwd)
 if [[ $test_run == true ]]; then
   manifest="$repo_root/inputs/test/samples.tsv"
 fi
@@ -236,7 +256,8 @@ export PYSPARK_PYTHON="$hail_python"
 export TOOLS_PATH="$tools_path"
 export HAIL_PATH="$hail_path"
 
-metadata_dir=$(mktemp -d "${TMPDIR:-/tmp}/mtSwirl-scatter.XXXXXX")
+mkdir -p -- "$repo_root/temp"
+metadata_dir=$(mktemp -d "$repo_root/temp/mtSwirl-scatter.XXXXXX")
 metadata_file="$metadata_dir/metadata.json"
 inputs_file="$metadata_dir/inputs.json"
 cram_list="$metadata_dir/crams.list"
@@ -267,7 +288,11 @@ if [[ $validate_only == true ]]; then
   exit 0
 fi
 
-java "-Dconfig.file=$cromwell_config" -jar "$cromwell_jar" run \
+cromwell_java_args=("-Dconfig.file=$cromwell_config")
+if [[ -n $max_concurrent_jobs ]]; then
+  cromwell_java_args+=("-Dbackend.providers.Local.config.concurrent-job-limit=$max_concurrent_jobs")
+fi
+java "${cromwell_java_args[@]}" -jar "$cromwell_jar" run \
   -m "$metadata_file" \
   "$workflow" \
   -i "$inputs_file"

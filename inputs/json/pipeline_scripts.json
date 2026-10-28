@@ -7,7 +7,6 @@
   "MitochondriaPipeline.SelfReferenceHelperScript": "resources/scripts/r/self_reference_helpers.R",
   "MitochondriaPipeline.CoverageHelpersScript": "resources/scripts/r/coverage_helpers.R",
   "MitochondriaPipeline.HailLiftover": "resources/scripts/py/fix_liftover.py",
-  "MitochondriaPipeline.JsonTools": "resources/scripts/py/jsontools.py",
   "MitochondriaPipeline.MergePerBatch": "resources/scripts/py/merge_per_batch.py",
   "SwirlPipeline.prepare_script": "resources/scripts/py/prepare_scatter_inputs.py",
   "SwirlPipeline.stage_script": "resources/scripts/py/stage_scatter_outputs.py"

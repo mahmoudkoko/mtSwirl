@@ -36,21 +36,16 @@ workflow ProduceSelfReferenceFiles {
   input {
     String sample_name
     String suffix
-
-    File mt_dict
     File mt_fasta
     File mt_fasta_index
     File mt_interval_list
     File non_control_region_interval_list
-
-    File ref_dict
     File ref_fasta
     File ref_fasta_index
     File nuc_interval_list
     String reference_name = "reference"
 
     File blacklisted_sites
-    File blacklisted_sites_index
 
     Int n_shift = 8000
 
@@ -63,11 +58,6 @@ workflow ProduceSelfReferenceFiles {
     File CheckHomOverlapScript
     File HailForceCallScript
     File SelfReferenceHelperScript
-
-    #Optional runtime arguments
-    Int? preemptible_tries
-    String genomes_cloud_docker
-    String ucsc_docker
   }
 
   call MongoTasks_Single.MongoProduceSelfReference as ProduceSelfReference {
@@ -89,10 +79,7 @@ workflow ProduceSelfReferenceFiles {
       hail_force_call_script = HailForceCallScript,
       self_reference_helper_script = SelfReferenceHelperScript,
       non_control_region_interval_list = non_control_region_interval_list,
-      n_shift = n_shift,
-      intertext = '',
-      genomes_cloud_docker = genomes_cloud_docker,
-      preemptible_tries = preemptible_tries
+      n_shift = n_shift
   }
 
   call MongoTasks_Single.MongoChainSwapLiftoverBed as ChainSwapLiftoverBed {
@@ -101,10 +88,7 @@ workflow ProduceSelfReferenceFiles {
       input_target_name = sample_name,
 
       input_source_name = reference_name,
-      input_bed = blacklisted_sites,
-      input_bed_index = blacklisted_sites_index,
-      ucsc_docker = ucsc_docker,
-      preemptible_tries = preemptible_tries
+      input_bed = blacklisted_sites
   }
 
   if (compute_numt_coverage) {
@@ -113,9 +97,7 @@ workflow ProduceSelfReferenceFiles {
         input_intervals = nuc_interval_list,
         target_dict = ProduceSelfReference.self_cat_dict,
         self_reference_helper_script = SelfReferenceHelperScript,
-        intertext = '.nuc',
-        genomes_cloud_docker = genomes_cloud_docker,
-        preemptible_tries = preemptible_tries
+        intertext = '.nuc'
     }
 
     call MongoTasks_Single.CreateSpanIntervalsWithDict as LiftOverNucReferenceShifted {
@@ -123,27 +105,21 @@ workflow ProduceSelfReferenceFiles {
         input_intervals = nuc_interval_list,
         target_dict = ProduceSelfReference.self_shifted_cat_dict,
         self_reference_helper_script = SelfReferenceHelperScript,
-        intertext = '.nuc.shifted',
-        genomes_cloud_docker = genomes_cloud_docker,
-        preemptible_tries = preemptible_tries
+        intertext = '.nuc.shifted'
     }
 
     call MongoTasks_Single.ChainSwap as SelfToRefNucLiftoverChain {
       input:
         source_chain = ProduceSelfReference.grch38_to_self_nuc_chain,
         input_source_name = reference_name,
-        input_target_name = sample_name + "_nuc",
-        ucsc_docker = ucsc_docker,
-        preemptible_tries = preemptible_tries
+        input_target_name = sample_name + "_nuc"
     }
 
     call MongoTasks_Single.MoveChainToZero {
       input:
         source_chain = SelfToRefNucLiftoverChain.chain,
         ref_intervals = nuc_interval_list,
-        self_reference_helper_script = SelfReferenceHelperScript,
-        genomes_cloud_docker = genomes_cloud_docker,
-        preemptible_tries = preemptible_tries
+        self_reference_helper_script = SelfReferenceHelperScript
     }
   }
 
