@@ -61,6 +61,8 @@ workflow ProduceSelfReferenceFiles {
     File FaRenamingScript
     File CheckVariantBoundsScript
     File CheckHomOverlapScript
+    File HailForceCallScript
+    File SelfReferenceHelperScript
 
     #Optional runtime arguments
     Int? preemptible_tries
@@ -84,6 +86,8 @@ workflow ProduceSelfReferenceFiles {
       fa_renaming_script = FaRenamingScript,
       variant_bounds_script = CheckVariantBoundsScript,
       check_hom_overlap_script = CheckHomOverlapScript,
+      hail_force_call_script = HailForceCallScript,
+      self_reference_helper_script = SelfReferenceHelperScript,
       non_control_region_interval_list = non_control_region_interval_list,
       n_shift = n_shift,
       intertext = '',
@@ -108,6 +112,7 @@ workflow ProduceSelfReferenceFiles {
       input:
         input_intervals = nuc_interval_list,
         target_dict = ProduceSelfReference.self_cat_dict,
+        self_reference_helper_script = SelfReferenceHelperScript,
         intertext = '.nuc',
         genomes_cloud_docker = genomes_cloud_docker,
         preemptible_tries = preemptible_tries
@@ -117,6 +122,7 @@ workflow ProduceSelfReferenceFiles {
       input:
         input_intervals = nuc_interval_list,
         target_dict = ProduceSelfReference.self_shifted_cat_dict,
+        self_reference_helper_script = SelfReferenceHelperScript,
         intertext = '.nuc.shifted',
         genomes_cloud_docker = genomes_cloud_docker,
         preemptible_tries = preemptible_tries
@@ -135,6 +141,7 @@ workflow ProduceSelfReferenceFiles {
       input:
         source_chain = SelfToRefNucLiftoverChain.chain,
         ref_intervals = nuc_interval_list,
+        self_reference_helper_script = SelfReferenceHelperScript,
         genomes_cloud_docker = genomes_cloud_docker,
         preemptible_tries = preemptible_tries
     }

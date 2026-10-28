@@ -9,6 +9,7 @@ workflow AlignAndCallR2 {
 
   input {
     File unmapped_bam
+    File CoverageMetricsScript
     String sample_name
     String suffix
     String genomes_cloud_docker
@@ -75,6 +76,7 @@ workflow AlignAndCallR2 {
   call MongoTasks_Single.MongoAlignToMtRegShiftedAndMetrics as AlignToMtRegShiftedAndMetrics {
     input:
       input_bam = unmapped_bam,
+      coverage_metrics_script = CoverageMetricsScript,
       sample_base_name = sample_name,
       suffix = suffix,
 

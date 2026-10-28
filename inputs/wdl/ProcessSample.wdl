@@ -38,6 +38,10 @@ workflow MitochondriaPipeline {
     File non_control_region_interval_list
 
     File HailLiftover
+    File HailForceCallScript
+    File CoverageMetricsScript
+    File SelfReferenceHelperScript
+    File CoverageHelpersScript
     File haplocheck_cli
     File FaRenamingScript
     File CheckVariantBoundsScript
@@ -100,6 +104,7 @@ workflow MitochondriaPipeline {
       ref_fasta = ref_fasta,
       ref_fasta_index = ref_fasta_index,
       ref_dict = ref_dict,
+      coverage_metrics_script = CoverageMetricsScript,
       requester_pays_project = requester_pays_project,
       gatk_override = gatk_override,
       gatk_docker_override = gatk_samtools_docker,
@@ -173,6 +178,8 @@ workflow MitochondriaPipeline {
       FaRenamingScript = FaRenamingScript,
       CheckVariantBoundsScript = CheckVariantBoundsScript,
       CheckHomOverlapScript = CheckHomOverlapScript,
+      HailForceCallScript = HailForceCallScript,
+      SelfReferenceHelperScript = SelfReferenceHelperScript,
       genomes_cloud_docker = genomes_cloud_docker,
       ucsc_docker = ucsc_docker,
       preemptible_tries = preemptible_tries
@@ -181,6 +188,7 @@ workflow MitochondriaPipeline {
   call AlignAndCallR2_Single.AlignAndCallR2 as AlignAndCallR2 {
     input:
       unmapped_bam = SubsetBamToChrMAndRevert.unmapped_bam,
+      CoverageMetricsScript = CoverageMetricsScript,
       sample_name = sample_name,
       suffix = self_ref_suffix,
 
@@ -256,6 +264,7 @@ workflow MitochondriaPipeline {
       ref_fasta_index = mt_fasta_index,
       ref_dict = mt_dict,
       HailLiftover = HailLiftover,
+      coverage_helpers_script = CoverageHelpersScript,
       self_suffix = self_ref_suffix,
 
       n_cpu = n_cpu_m2_hc_lift,
@@ -269,6 +278,7 @@ workflow MitochondriaPipeline {
       self_ref_table = LiftOverAfterSelf.self_coverage_table,
       chain = ProduceSelfRefFiles.self_to_ref_chain,
       homoplasmic_deletions_coverage = LiftOverAfterSelf.gap_coverage,
+      coverage_helpers_script = CoverageHelpersScript,
       
       liftover_table = LiftOverAfterSelf.liftoverStats,
       mean_coverage = AlignAndCallR2.mean_coverage,
@@ -315,6 +325,7 @@ workflow MitochondriaPipeline {
         self_table = NucCoverageAtEveryBase.table_new_self,
         self_table_shifted = NucCoverageAtEveryBase.table_new_self_shifted,
         chain = ProduceSelfRefFiles.nuc_self_to_ref_chain,
+        coverage_helpers_script = CoverageHelpersScript,
         mem = lift_coverage_mem,
         ucsc_docker = ucsc_docker,
         preemptible_tries = preemptible_tries

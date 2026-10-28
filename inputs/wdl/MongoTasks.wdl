@@ -29,6 +29,7 @@ task MongoSubsetBamToChrMAndRevert {
     File? ref_fasta
     File? ref_fasta_index
     File? ref_dict
+    File coverage_metrics_script
 
     Boolean skip_restore_hardclips
     String? read_name_regex
@@ -141,11 +142,10 @@ task MongoSubsetBamToChrMAndRevert {
       INCLUDE_BQ_HISTOGRAM=true \
       THEORETICAL_SENSITIVITY_OUTPUT="~{d}{this_sample}.theoretical_sensitivity.txt"
 
-    R --vanilla <<CODE
-      df = read.table("~{d}{this_sample}.wgs_metrics.txt",skip=6,header=TRUE,stringsAsFactors=FALSE,sep='\t',nrows=1)
-      write.table(floor(df[,"MEAN_COVERAGE"]), "~{d}{this_sample}.mean_coverage.txt", quote=F, col.names=F, row.names=F)
-      write.table(df[,"MEDIAN_COVERAGE"], "~{d}{this_sample}.median_coverage.txt", quote=F, col.names=F, row.names=F)
-    CODE
+    Rscript --vanilla ~{coverage_metrics_script} \
+      "~{d}{this_sample}.wgs_metrics.txt" \
+      "~{d}{this_sample}.mean_coverage.txt" \
+      "~{d}{this_sample}.median_coverage.txt"
 
     echo "Now preprocessing subsetted bam..."
     gatk --java-options "-Xmx~{command_mem}m" MarkDuplicates \
@@ -1320,6 +1320,8 @@ task MongoProduceSelfReference {
     File fa_renaming_script
     File variant_bounds_script
     File check_hom_overlap_script
+    File hail_force_call_script
+    File self_reference_helper_script
     Int? preemptible_tries
 
     Int n_shift
@@ -1498,27 +1500,11 @@ task MongoProduceSelfReference {
     samtools faidx "~{d}{this_nuc_only_fasta}"
 
     echo "Now shifting the reference..."
-    R --vanilla <<CODE
-      full_fasta <- readLines("~{d}{this_mt_fasta}")
-      topline <- full_fasta[1]
-      linelen <- nchar(full_fasta[2])
-      n_shift <- ~{n_shift}
-      other_lines <- paste0(full_fasta[2:length(full_fasta)],collapse='')
-      other_lines_shifted <- paste0(substr(other_lines, n_shift+1, nchar(other_lines)), substr(other_lines, 1, n_shift))
-      len_chr <- nchar(other_lines_shifted)
-      shifted_split <- substring(other_lines_shifted, seq(1, len_chr, linelen), unique(c(seq(linelen, len_chr, linelen), len_chr)))
-      final_data <- c(topline, shifted_split)
-      writeLines(final_data, "~{d}{this_fasta_shifted}")
-
-      total_len <- nchar(other_lines)
-      sec1 <- paste(c('chain',9999,'chrM',total_len,'+', 0,total_len-n_shift, 'chrM', total_len, '+', n_shift, total_len, 1),collapse=' ')
-      sec2 <- paste(c('chain',9999,'chrM',total_len,'+', total_len-n_shift,total_len, 'chrM', total_len, '+', 0, n_shift, 2),collapse=' ')
-      writeLines(c(sec1, total_len-n_shift, '', sec2, n_shift, ''), "~{d}{this_chain_shifted}")
-
-      sec1_f <- paste(c('chain',9999,'chrM',total_len,'+', n_shift,total_len, 'chrM', total_len, '+', 0, total_len-n_shift, 1),collapse=' ')
-      sec2_f <- paste(c('chain',9999,'chrM',total_len,'+', 0, n_shift, 'chrM', total_len, '+', total_len-n_shift, total_len, 2),collapse=' ')
-      writeLines(c(sec1_f, total_len-n_shift, '', sec2_f, n_shift, ''), "~{d}{this_chain_fwd_shifted}")
-    CODE
+    Rscript --vanilla ~{self_reference_helper_script} shift-reference \
+      "~{d}{this_mt_fasta}" "~{n_shift}" \
+      "~{d}{this_fasta_shifted}" \
+      "~{d}{this_chain_shifted}" \
+      "~{d}{this_chain_fwd_shifted}"
 
     cat "~{d}{this_fasta_shifted}" "~{d}{this_nuc_only_fasta}" > "~{d}{this_fasta_cat_shifted}"
 
@@ -1547,16 +1533,10 @@ task MongoProduceSelfReference {
     samtools faidx "~{d}{this_fasta_shifted}"
 
     echo "Now adjusting the MT interval list..."
-    R --vanilla <<CODE
-      intervals <- readLines("~{mt_interval_list}")
-      intervals <- intervals[grep('^@', intervals, invert=T)]
-      interval_names <- sapply(strsplit(intervals, '\t'),function(x)x[5])
-      new_header <- readLines("~{d}{this_basename}.dict")
-      lens <- sapply(interval_names, function(x)as.numeric(gsub('LN:','',strsplit(new_header[grep(paste0('^@SQ\tSN:',x), new_header)[1]], '\t')[[1]][3])))
-      if(any(is.na(lens))) stop('ERROR: Some NUMT intervals were not found in the mt_andNuc sequence dictionary.')
-      new_intervals <- c(new_header, paste(interval_names, 1, lens, '+', interval_names, sep='\t'))
-      writeLines(new_intervals, "~{d}{this_mt_intervals}")
-    CODE
+    Rscript --vanilla ~{self_reference_helper_script} adjust-mt-intervals \
+      "~{mt_interval_list}" \
+      "~{d}{this_basename}.dict" \
+      "~{d}{this_mt_intervals}"
 
     echo "Now shifting the noncontrol region..."
     
@@ -1574,98 +1554,96 @@ task MongoProduceSelfReference {
 
 
     echo "Now shifting the control region..."
-    R --vanilla <<CODE
-      full_intervals <- readLines("~{d}{this_nonctrl_interval}")
-      correct_dict <- readLines("~{d}{this_shifted_basename}.dict")
-      n_shift <- ~{n_shift}
-      if (length(full_intervals) > 3) {
-        stop('ERROR: there should be only 3 lines in interval list.')
-      }
-      if ((length(grep('^@', full_intervals)) != 2) | (length(grep('^chrM', full_intervals)) != 1)) {
-        stop('ERROR: there should be 2 comment lines and one interval line on chrM')
-      }
-      out_intervals <- c(full_intervals[1], correct_dict[2])
-      split_line2 <- strsplit(out_intervals[2],'\t')[[1]]
-      this_len <- as.numeric(gsub('^LN:','',split_line2[grep('^LN', split_line2)[1]]))
-
-      interval <- strsplit(full_intervals[3],'\t')[[1]]
-      new_end <- as.numeric(interval[2]) - 1 + this_len - n_shift
-      new_start <- as.numeric(interval[3]) + 1 - n_shift
-      interval[2:3] <- c(as.character(new_start), as.character(new_end))
-      out_intervals <- c(out_intervals, paste0(interval, collapse='\t'))
-
-      writeLines(out_intervals, "~{d}{this_ctrl_interval}")
-    CODE
+    Rscript --vanilla ~{self_reference_helper_script} shift-control-region \
+      "~{d}{this_nonctrl_interval}" \
+      "~{d}{this_shifted_basename}.dict" \
+      "~{n_shift}" \
+      "~{d}{this_ctrl_interval}"
 
     echo "Now making force call variants..."
-    : "${HAIL_CONDA_PREFIX:?Set HAIL_CONDA_PREFIX to the Hail Conda environment}"
-    JAVA_HOME="$HAIL_CONDA_PREFIX" \
-    PATH="$HAIL_CONDA_PREFIX/bin:$PATH" \
-    PYSPARK_PYTHON="$HAIL_CONDA_PREFIX/bin/python" \
-    python <<CODE
-    import hail as hl
+    : "${HAIL_PYTHON:?Set HAIL_PYTHON to a Python executable with Hail installed}"
+    JAVA_HOME="$HAIL_JAVA_HOME" \
+    PATH="$HAIL_BIN_DIR:$PATH" \
+    PYSPARK_PYTHON="$HAIL_PYTHON" \
+    "$HAIL_PYTHON" "~{hail_force_call_script}" \
+      --self-fasta "~{d}{this_mt_fasta}" \
+      --self-fai "~{d}{this_mt_fasta}.fai" \
+      --reference-fasta "~{mt_ref_fasta}" \
+      --reference-fai "~{mt_ref_fasta_index}" \
+      --reference-to-self-chain "~{d}{this_mt_chain}" \
+      --shifted-self-fasta "~{d}{this_fasta_shifted}" \
+      --shifted-self-fai "~{d}{this_fasta_shifted}.fai" \
+      --forward-shift-chain "~{d}{this_chain_fwd_shifted}" \
+      --filtered-vcf "~{d}{this_filt_vcf}" \
+      --output-vcf "~{d}{this_vcf_bgz}" \
+      --output-filter-vcf "~{d}{this_vcf_filters_bgz}" \
+      --output-shifted-vcf "~{d}{this_vcf_shifted_bgz}"
 
-    def fai_to_len(fai):
-        with open(fai) as f:
-            line = f.readline()
-        return int(line.split('\t')[1])
-
-    def check_vcf_integrity(mt):
-        # check that locus, alleles are the two key fields
-        if sorted(list(mt.row_key)) != ['alleles', 'locus']:
-            raise ValueError('VCFs must always be keyed by locus, alleles.')
-
-        # check that all sites are bi-allelic
-        if mt.aggregate_rows(~hl.agg.all(hl.len(mt.alleles) == 2)):
-            raise ValueError('This function only supports biallelic sites (run SplitMultiAllelics!)')
-
-        # check that there is no missingness in locus
-        if mt.aggregate_rows(~hl.agg.all(hl.is_defined(mt.locus))):
-            raise ValueError('ERROR: locus must always be defined, both before and after Liftover. This should be a reversible operation, thus finding missing loci after reverse liftover is very concerning.')
-
-        # check that there is no missingness in alleles
-        if mt.aggregate_rows(~hl.agg.all(hl.all(hl.map(hl.is_defined, mt.alleles)))):
-            raise ValueError('ERROR: alleles should always be defined.')
-
-    def apply_conversion(mt, liftover_target, skip_flip=False):
-        mt_lifted = mt.annotate_rows(new_locus = hl.liftover(mt.locus, liftover_target))
-        if skip_flip:
-          mt_lifted = mt_lifted.annotate_rows(allele_flip = mt_lifted.alleles)
-        else:
-          mt_lifted = mt_lifted.annotate_rows(allele_flip = hl.reversed(mt_lifted.alleles))
-        mt_lifted = mt_lifted.key_rows_by().rename({'locus':'locus_orig', 'alleles':'alleles_orig'}).rename({'new_locus':'locus', 'allele_flip': 'alleles'}).key_rows_by('locus','alleles')
-        mt_lifted = mt_lifted.drop('locus_orig', 'alleles_orig')
-
-        return mt_lifted
-
-    target = hl.ReferenceGenome("target_self", ['chrM'], {'chrM':fai_to_len("~{d}{this_mt_fasta}.fai")}, mt_contigs=['chrM'])
-    source = hl.ReferenceGenome('mtGRCh38', ['chrM'], {'chrM':fai_to_len("~{mt_ref_fasta_index}")}, mt_contigs=['chrM'])
-    target.add_sequence("~{d}{this_mt_fasta}", "~{d}{this_mt_fasta}.fai")
-    source.add_sequence("~{mt_ref_fasta}", "~{mt_ref_fasta_index}")
-    source.add_liftover("~{d}{this_mt_chain}", "target_self")
-    shifted_target = hl.ReferenceGenome("target_self_shifted", ['chrM'], {'chrM':fai_to_len("~{d}{this_fasta_shifted}.fai")}, mt_contigs=['chrM'])
-    shifted_target.add_sequence("~{d}{this_fasta_shifted}", "~{d}{this_fasta_shifted}.fai")
-    target.add_liftover("~{d}{this_chain_fwd_shifted}", shifted_target)
-
-    mt_new = hl.import_vcf("~{d}{this_filt_vcf}", reference_genome='mtGRCh38').select_entries()
-    check_vcf_integrity(mt_new)
-
-    mt_new_1 = mt_new.select_rows()
-    mt_lifted_target = apply_conversion(mt_new_1, "target_self")
-    check_vcf_integrity(mt_lifted_target)
-    hl.export_vcf(mt_lifted_target, "~{d}{this_vcf_bgz}", tabix=True)
-
-    mt_new_2 = mt_new.select_rows('filters')
-    this_metadata = hl.get_vcf_metadata("~{d}{this_filt_vcf}")
-    this_metadata = {'filter': this_metadata['filter']}
-    mt_lifted_target_withfilter = apply_conversion(mt_new_2, "target_self")
-    check_vcf_integrity(mt_lifted_target_withfilter)
-    hl.export_vcf(mt_lifted_target_withfilter, "~{d}{this_vcf_filters_bgz}", tabix=True, metadata=this_metadata)
-
-    mt_lifted_shifted_target = apply_conversion(mt_lifted_target, "target_self_shifted", skip_flip=True)
-    check_vcf_integrity(mt_lifted_shifted_target)
-    hl.export_vcf(mt_lifted_shifted_target, "~{d}{this_vcf_shifted_bgz}", tabix=True)
-    CODE
+    # Original inline Python retained temporarily while validating the extracted script.
+    # "$HAIL_PYTHON" <<CODE
+    # import hail as hl
+    #
+    # def fai_to_len(fai):
+    #     with open(fai) as f:
+    #         line = f.readline()
+    #     return int(line.split('\t')[1])
+    #
+    # def check_vcf_integrity(mt):
+    #     # check that locus, alleles are the two key fields
+    #     if sorted(list(mt.row_key)) != ['alleles', 'locus']:
+    #         raise ValueError('VCFs must always be keyed by locus, alleles.')
+    #
+    #     # check that all sites are bi-allelic
+    #     if mt.aggregate_rows(~hl.agg.all(hl.len(mt.alleles) == 2)):
+    #         raise ValueError('This function only supports biallelic sites (run SplitMultiAllelics!)')
+    #
+    #     # check that there is no missingness in locus
+    #     if mt.aggregate_rows(~hl.agg.all(hl.is_defined(mt.locus))):
+    #         raise ValueError('ERROR: locus must always be defined, both before and after Liftover. This should be a reversible operation, thus finding missing loci after reverse liftover is very concerning.')
+    #
+    #     # check that there is no missingness in alleles
+    #     if mt.aggregate_rows(~hl.agg.all(hl.all(hl.map(hl.is_defined, mt.alleles)))):
+    #         raise ValueError('ERROR: alleles should always be defined.')
+    #
+    # def apply_conversion(mt, liftover_target, skip_flip=False):
+    #     mt_lifted = mt.annotate_rows(new_locus = hl.liftover(mt.locus, liftover_target))
+    #     if skip_flip:
+    #       mt_lifted = mt_lifted.annotate_rows(allele_flip = mt_lifted.alleles)
+    #     else:
+    #       mt_lifted = mt_lifted.annotate_rows(allele_flip = hl.reversed(mt_lifted.alleles))
+    #     mt_lifted = mt_lifted.key_rows_by().rename({'locus':'locus_orig', 'alleles':'alleles_orig'}).rename({'new_locus':'locus', 'allele_flip': 'alleles'}).key_rows_by('locus','alleles')
+    #     mt_lifted = mt_lifted.drop('locus_orig', 'alleles_orig')
+    #
+    #     return mt_lifted
+    #
+    # target = hl.ReferenceGenome("target_self", ['chrM'], {'chrM':fai_to_len("~{d}{this_mt_fasta}.fai")}, mt_contigs=['chrM'])
+    # source = hl.ReferenceGenome('mtGRCh38', ['chrM'], {'chrM':fai_to_len("~{mt_ref_fasta_index}")}, mt_contigs=['chrM'])
+    # target.add_sequence("~{d}{this_mt_fasta}", "~{d}{this_mt_fasta}.fai")
+    # source.add_sequence("~{mt_ref_fasta}", "~{mt_ref_fasta_index}")
+    # source.add_liftover("~{d}{this_mt_chain}", "target_self")
+    # shifted_target = hl.ReferenceGenome("target_self_shifted", ['chrM'], {'chrM':fai_to_len("~{d}{this_fasta_shifted}.fai")}, mt_contigs=['chrM'])
+    # shifted_target.add_sequence("~{d}{this_fasta_shifted}", "~{d}{this_fasta_shifted}.fai")
+    # target.add_liftover("~{d}{this_chain_fwd_shifted}", shifted_target)
+    #
+    # mt_new = hl.import_vcf("~{d}{this_filt_vcf}", reference_genome='mtGRCh38').select_entries()
+    # check_vcf_integrity(mt_new)
+    #
+    # mt_new_1 = mt_new.select_rows()
+    # mt_lifted_target = apply_conversion(mt_new_1, "target_self")
+    # check_vcf_integrity(mt_lifted_target)
+    # hl.export_vcf(mt_lifted_target, "~{d}{this_vcf_bgz}", tabix=True)
+    #
+    # mt_new_2 = mt_new.select_rows('filters')
+    # this_metadata = hl.get_vcf_metadata("~{d}{this_filt_vcf}")
+    # this_metadata = {'filter': this_metadata['filter']}
+    # mt_lifted_target_withfilter = apply_conversion(mt_new_2, "target_self")
+    # check_vcf_integrity(mt_lifted_target_withfilter)
+    # hl.export_vcf(mt_lifted_target_withfilter, "~{d}{this_vcf_filters_bgz}", tabix=True, metadata=this_metadata)
+    #
+    # mt_lifted_shifted_target = apply_conversion(mt_lifted_target, "target_self_shifted", skip_flip=True)
+    # check_vcf_integrity(mt_lifted_shifted_target)
+    # hl.export_vcf(mt_lifted_shifted_target, "~{d}{this_vcf_shifted_bgz}", tabix=True)
+    # CODE
   >>>
 
   output {
@@ -1728,6 +1706,7 @@ task MongoProduceSelfReference {
 task MongoAlignToMtRegShiftedAndMetrics {
   input {
     File input_bam
+    File coverage_metrics_script
     String bwa_commandline = "bwa mem -K 100000000 -p -v 3 -Y $bash_ref_fasta"
     String sample_base_name
     String suffix
@@ -1944,11 +1923,10 @@ task MongoAlignToMtRegShiftedAndMetrics {
       --INCLUDE_BQ_HISTOGRAM true \
       --THEORETICAL_SENSITIVITY_OUTPUT "~{d}{this_sample}_r2_wgs_theoretical_sensitivity.txt"
 
-    R --vanilla <<CODE
-      df = read.table("~{d}{this_sample}_r2_wgs_metrics.txt",skip=6,header=TRUE,stringsAsFactors=FALSE,sep='\t',nrows=1)
-      write.table(floor(df[,"MEAN_COVERAGE"]), "~{d}{this_sample}_r2_mean_coverage.txt", quote=F, col.names=F, row.names=F)
-      write.table(df[,"MEDIAN_COVERAGE"], "~{d}{this_sample}_r2_median_coverage.txt", quote=F, col.names=F, row.names=F)
-    CODE
+    Rscript --vanilla ~{coverage_metrics_script} \
+      "~{d}{this_sample}_r2_wgs_metrics.txt" \
+      "~{d}{this_sample}_r2_mean_coverage.txt" \
+      "~{d}{this_sample}_r2_median_coverage.txt"
   >>>
   runtime {
     #preemptible: select_first([preemptible_tries, 5])
@@ -2012,6 +1990,7 @@ task MongoLiftoverVCFAndGetCoverage {
 
     String self_suffix
     File HailLiftover
+    File coverage_helpers_script
     File ref_fasta
     File ref_fasta_index
     File ref_dict
@@ -2105,11 +2084,11 @@ task MongoLiftoverVCFAndGetCoverage {
     echo "$n_filtered sites are changed in self-reference. $n_original sites were found variant after second-round Mutect. Of these, $n_pass passed first-round Liftover and $n_rejected failed and are being piped to Hail pipeline for rescue."
 
     # now run hail script to fix the rejects
-    : "${HAIL_CONDA_PREFIX:?Set HAIL_CONDA_PREFIX to the Hail Conda environment}"
-    JAVA_HOME="$HAIL_CONDA_PREFIX" \
-    PATH="$HAIL_CONDA_PREFIX/bin:$PATH" \
-    PYSPARK_PYTHON="$HAIL_CONDA_PREFIX/bin/python" \
-    python ~{HailLiftover} \
+    : "${HAIL_PYTHON:?Set HAIL_PYTHON to a Python executable with Hail installed}"
+    JAVA_HOME="$HAIL_JAVA_HOME" \
+    PATH="$HAIL_BIN_DIR:$PATH" \
+    PYSPARK_PYTHON="$HAIL_PYTHON" \
+    "$HAIL_PYTHON" ~{HailLiftover} \
     --vcf-file "~{d}{this_basename}.selfToRef.rejected.vcf" \
     --success-vcf-file "~{d}{this_basename}.selfToRef.pre.vcf" \
     --self-homoplasmies "~{d}{this_rev_hom_ref_vcf}" \
@@ -2160,30 +2139,11 @@ task MongoLiftoverVCFAndGetCoverage {
       --SAMPLE_SIZE 1 \
       --VALIDATION_STRINGENCY LENIENT
 
-    R --vanilla <<CODE
-      full_fasta <- readLines("~{d}{this_self_fasta}") # edited to account for variable reference sizes
-      nlen <- nchar(paste0(full_fasta[2:length(full_fasta)],collapse=''))
-      nshift <- 8000
-      shift_back <- function(x) {
-        if (x < (nlen-nshift+1)) {
-          return(x + nshift)
-        } else {
-          return (x - (nlen-nshift))
-        }
-      }
-
-      control_region_shifted = read.table("control_region_shifted.tsv", header=T)
-      shifted_back = sapply(control_region_shifted[,"pos"], shift_back)
-      control_region_shifted[,"pos"] = shifted_back
-
-      beginning = subset(control_region_shifted, control_region_shifted[,'pos']<8000)
-      end = subset(control_region_shifted, control_region_shifted[,'pos']>8000)
-
-      non_control_region = read.table("non_control_region.tsv", header=T)
-      combined_table = rbind(beginning, non_control_region, end)
-      write.table(combined_table, "~{d}{this_basename}.per_base_coverage.tsv", row.names=F, col.names=T, quote=F, sep="\t")
-
-    CODE
+    Rscript --vanilla ~{coverage_helpers_script} stitch-self-coverage \
+      "~{d}{this_self_fasta}" \
+      control_region_shifted.tsv \
+      non_control_region.tsv \
+      "~{d}{this_basename}.per_base_coverage.tsv"
 
     echo "Now outputting a final table with integers..."
     paste -d "\t" "~{d}{this_basename}.round2liftover.all_int_outputs.txt" <(printf "n_liftover_changed_selfref_and_passed\n$(cat ~{d}{this_sample}_n_ref_pass_thru.txt)\n") <(printf "n_liftover_r1_pass\n$(cat ~{d}{this_sample}_n_pass.txt)\n") <(printf "n_liftover_r2_pass\n$(cat ~{d}{this_sample}_n_final_pass.txt)\n") > "~{d}{this_basename}.round2liftover.all_int_outputs.final.txt"
@@ -2236,6 +2196,7 @@ task CreateSpanIntervalsWithDict {
   input {
     File input_intervals
     File target_dict
+    File self_reference_helper_script
     String intertext
     String genomes_cloud_docker
 
@@ -2247,16 +2208,8 @@ task CreateSpanIntervalsWithDict {
   String output_intervals = basename(input_intervals, ".interval_list") + intertext + ".SelfRefLiftover.interval_list"
 
   command <<<
-    R --vanilla <<CODE
-      intervals <- readLines('~{input_intervals}')
-      intervals <- intervals[grep('^@', intervals, invert=T)]
-      interval_names <- sapply(strsplit(intervals, '\t'),function(x)x[5])
-      new_header <- readLines('~{target_dict}')
-      lens <- sapply(interval_names, function(x)as.numeric(gsub('LN:','',strsplit(new_header[grep(paste0('^@SQ\tSN:',x), new_header)[1]], '\t')[[1]][3])))
-      if(any(is.na(lens))) stop('ERROR: Some NUMT intervals were not found in the mt_andNuc sequence dictionary.')
-      new_intervals <- c(new_header, paste(interval_names, 1, lens, '+', interval_names, sep='\t'))
-      writeLines(new_intervals, '~{output_intervals}')
-    CODE
+    Rscript --vanilla ~{self_reference_helper_script} create-span-intervals \
+      "~{input_intervals}" "~{target_dict}" "~{output_intervals}"
   >>>
 
   output {
@@ -2280,6 +2233,7 @@ task MoveChainToZero {
   input {
     File source_chain
     File ref_intervals
+    File self_reference_helper_script
     String genomes_cloud_docker
 
     Int? preemptible_tries
@@ -2289,29 +2243,8 @@ task MoveChainToZero {
   String output_chain = basename(source_chain, ".chain") + ".toZero.chain"
 
   command <<<
-    R --vanilla <<CODE
-      chain <- readLines('~{source_chain}')
-      intervals <- readLines('~{ref_intervals}')
-      intervals <- intervals[grep('^@', intervals, invert=T)]
-      intervals_split <- strsplit(intervals, '\t')
-      target_names <- sapply(intervals_split, function(x)x[5])
-      names(target_names) <- sapply(intervals_split, function(x)paste0(x[1], ':', as.numeric(x[2])-1, '-', x[3]))
-      to_edit <- grep('^chain', chain)
-      this_sep <- ' '
-      new_headers <- sapply(chain[to_edit], function(x) {
-        this_header <- strsplit(x, this_sep)[[1]]
-        this_search <- paste0(this_header[8], ':', this_header[11], '-', this_header[12])
-        if (!this_search %in% names(target_names)) stop('ERROR: chain file has a segment not in intervals list.')
-        this_name <- target_names[this_search]
-        this_header[c(3, 8)] <- this_name
-        this_header[c(4, 6, 7)] <- as.numeric(this_header[c(4, 6, 7)]) - as.numeric(this_header[6])
-        this_header[c(9, 11, 12)] <- as.numeric(this_header[c(9, 11, 12)]) - as.numeric(this_header[11])
-        return(paste0(this_header, collapse=this_sep))
-      })
-      new_chain <- chain
-      new_chain[to_edit] <- new_headers
-      writeLines(new_chain, '~{output_chain}')
-    CODE
+    Rscript --vanilla ~{self_reference_helper_script} move-chain-to-zero \
+      "~{source_chain}" "~{ref_intervals}" "~{output_chain}"
   >>>
 
   output {
@@ -2407,6 +2340,82 @@ task NucCoverageAtEveryBase {
 }
 
 
+###########################
+# MergeMultiSampleOutputs #
+###########################
+
+
+task MergeMultiSampleOutputs {
+  # this task merges arrayed inputs for:
+  # (1) output stats
+  # (2) lifted-over variant calls
+  # (3) per-base coverage
+  input {
+    Array[String] sample_name
+    Array[File] variant_vcf
+    Array[File] coverage_table
+    Array[File] statistics
+
+    File MergePerBatch
+    File coverage_helpers_script
+    Int? preemptible_tries
+  }
+
+  Int disk_size = ceil(size(variant_vcf, "GB") + size(coverage_table, "GB") + size(statistics, "GB") * 2) + 20
+
+  command <<<
+    set -e
+
+    # start by merging statistics
+    Rscript --vanilla ~{coverage_helpers_script} merge-statistics \
+      "~{write_lines(statistics)}" batch_analysis_statistics.tsv
+
+    # now produce the relevant inputs for the per-batch MT script
+    Rscript --vanilla ~{coverage_helpers_script} create-batch-inputs \
+      "~{write_lines(sample_name)}" \
+      "~{write_lines(coverage_table)}" \
+      "~{write_lines(variant_vcf)}" \
+      coverage_paths.tsv \
+      vcf_paths.tsv
+
+    mkdir tmp
+
+    : "${HAIL_PYTHON:?Set HAIL_PYTHON to a Python executable with Hail installed}"
+
+    # now merge coverage
+    JAVA_HOME="$HAIL_JAVA_HOME" \
+    PATH="$HAIL_BIN_DIR:$PATH" \
+    PYSPARK_PYTHON="$HAIL_PYTHON" \
+    "$HAIL_PYTHON" ~{MergePerBatch} \
+    --run-coverage \
+    --input-tsv coverage_paths.tsv \
+    --temp-dir tmp/ \
+    --output-flat-file batch_merged_mt_coverage.tsv.bgz
+
+    # finally merge variant calls
+    JAVA_HOME="$HAIL_JAVA_HOME" \
+    PATH="$HAIL_BIN_DIR:$PATH" \
+    PYSPARK_PYTHON="$HAIL_PYTHON" \
+    "$HAIL_PYTHON" ~{MergePerBatch} \
+    --run-variants \
+    --input-tsv vcf_paths.tsv \
+    --temp-dir tmp/ \
+    --output-flat-file batch_merged_mt_calls.vcf.bgz
+  >>>
+
+  output {
+    File merged_statistics = "batch_analysis_statistics.tsv"
+    File merged_coverage = "batch_merged_mt_coverage.tsv.bgz"
+    File merged_calls = "batch_merged_mt_calls.vcf.bgz"
+  }
+
+  runtime {
+    # disks: "local-disk " + disk_size + " HDD"
+    # memory: "2 GB"
+    # docker: genomes_cloud_docker
+    # preemptible: select_first([preemptible_tries, 5])
+  }
+}
 
 ##########################
 ##########################
@@ -2482,6 +2491,7 @@ task MongoLiftoverSelfAndCollectOutputs {
     File chain
     File homoplasmic_deletions_coverage
     File liftover_table
+    File coverage_helpers_script
 
     Int mean_coverage
     Float median_coverage
@@ -2524,126 +2534,25 @@ task MongoLiftoverSelfAndCollectOutputs {
     tail -n +2 "~{d}{this_self_ref_tab}" | awk '{OFS="\t"} {print $1"\t"$2-1"\t"$2"\t"$4}' > per_base_coverage.bed
     liftOver per_base_coverage.bed "~{d}{this_chain}" "~{d}{this_sample}.liftedOver.bed" "~{d}{this_sample}.liftedOver.unmapped"
 
-    R --vanilla <<CODE
-    init_chain <- readLines("~{d}{this_chain}")
-    if (length(grep('^chain', init_chain)) != 1) {
-      stop('ERROR: only single block chain files are currently supported.')
-    }
-    loc_init_chain <- grep('^chain', init_chain)
-    chain_splits = strsplit(init_chain[loc_init_chain],'\\\\s+')
-    if (!all(sapply(chain_splits, function(x)as.numeric(c(x[6], x[11]))) == 0)) {
-      stop('ERROR: chain file must start at 0 for both source and target.')
-    }
-    if (!(1 %in% loc_init_chain)) {
-      stop('ERROR: first line of chain file must be header.')
-    }
-    len_tab <- length(strsplit(init_chain[2],'\t')[[1]])
-    len_spc <- length(strsplit(init_chain[2],' ')[[1]])
-    if (len_tab > len_spc) {
-      sep <- '\t'
-    } else {
-      sep <- ' '
-    }
+    Rscript --vanilla ~{coverage_helpers_script} append-lifted-coverage \
+      "~{d}{this_chain}" \
+      "~{d}{this_sample}.liftedOver.unmapped" \
+      "~{d}{this_sample}.liftedOver.bed" \
+      "~{d}{this_dele_suppl}" \
+      "~{d}{this_sample}.appended.liftedOver.tsv"
 
-    chain <- read.csv("~{d}{this_chain}", skip=1, header=F, col.names=c('bases_in_block', 'ns', 'nt'), sep=sep, stringsAsFactors=F, fill=T)
-    chain[nrow(chain),2:3] <- 0
-    if (nrow(chain) == 1) {
-      chain[['coord_s']] = chain[['bases_in_block']]
-      chain[['coord_t']] = chain[['bases_in_block']]
-    } else {
-      chain[['coord_s']] = cumsum(chain[['bases_in_block']]) + cumsum(c(0,chain[['ns']][2:nrow(chain)-1]))
-      chain[['coord_t']] = cumsum(chain[['bases_in_block']]) + cumsum(c(0,chain[['nt']][2:nrow(chain)-1]))
-    }
-
-    if (any(is.na(chain))) {
-      stop('ERROR: there should be no missing fields in chain.')
-    }
-    if (sum((chain[['ns']] > 0) & (chain[['nt']] > 0)) != 0) {
-      stop('ERROR: Chain files should not have breaks -- e.g., each ungapped block should be followed by a gap in EITHER the source or target, but not both.')
-    }
-
-    start_end_to_bed <- function(start, end_inclusive) {
-      # push start up by one, because INDELs share the first base
-      new_start = start+1
-      ends = end_inclusive
-      if (length(new_start) != length(ends)) {
-        stop('ERROR: starts and ends must have the same length.')
-      }
-      if (length(new_start) == 0) {
-        empty_df <- data.frame('chr'='chrM', 'start'=1, 'end'=1)
-        return(empty_df[empty_df[['start']] > 1,])
-      }
-      bp = unlist(lapply(1:length(start), function(idx) new_start[idx]:ends[idx]))
-      df = data.frame('chr' = 'chrM', 'start' = bp-1, 'end' = bp)
-      return(df[order(df[['start']]),])
-    }
-
-    bed_entries_missing_in_db <- function(query, db) {
-      if ((nrow(query) > 0) & (nrow(db) > 0)) {
-        return(query[!paste0(query[['start']],':',query[['end']]) %in% paste0(db[['start']],':',db[['end']]),])
-      } else {
-        return(query)
-      }
-    }
-
-    n_rows_different_keys_bed <- function(df1, df2) {
-      return(nrow(bed_entries_missing_in_db(df1, df2)) + nrow(bed_entries_missing_in_db(df2, df1)))
-    }
-
-    insertions <- chain[chain[['ns']] > 0,]
-    expected_failed_liftover <- start_end_to_bed(insertions[['coord_s']], insertions[['coord_s']]+insertions[['ns']])
-    failure_bed <- read.csv("~{d}{this_sample}.liftedOver.unmapped", header=F, sep='\t', col.names=c('chr','start','end','cov'), comment.char='#')
-    if (n_rows_different_keys_bed(expected_failed_liftover, failure_bed) > 0) {
-      stop('ERROR: Rejected bed file is not identical to expectation.')
-    }
-
-    target_len <- as.numeric(strsplit(init_chain[1], '\\\\s+')[[1]][9])
-    deletions <- chain[chain[['nt']] > 0,]
-    expected_liftover_gaps <- start_end_to_bed(deletions[['coord_t']], deletions[['coord_t']]+deletions[['nt']])
-    success_bed <- read.csv("~{d}{this_sample}.liftedOver.bed", header=F, sep='\t', col.names=c('chr','start','end','cov'), comment.char='#')
-    full_bed <- data.frame('chr'='chrM', 'start'=0:(target_len-1), 'end'=1:target_len)
-    not_in_success_bed <- bed_entries_missing_in_db(full_bed, success_bed)
-    if (n_rows_different_keys_bed(expected_liftover_gaps, not_in_success_bed) > 0) {
-      stop('ERROR: Success bed file has different gaps than expected based on chain.')
-    }
-    if (nrow(expected_liftover_gaps) == 0) {
-      print('NOTE: No gaps found in coverage file, so no changes were made.')
-      appended_bed <- success_bed
-      appended_bed <- appended_bed[order(appended_bed[['start']]),]
-    } else {
-      fill_in_coverage <- read.csv("~{d}{this_dele_suppl}", sep='\t', stringsAsFactors=F)
-      bed_homoplas_dele <- data.frame('chr'='chrM', 'start'=fill_in_coverage[['reference_position']]-1,
-                                      'end'=fill_in_coverage[['reference_position']], 'cov'=fill_in_coverage[['ref_allele_depth']])
-      if (n_rows_different_keys_bed(expected_liftover_gaps, bed_homoplas_dele) > 0) {
-        stop('ERROR: Records in homoplasmic_deletions_coverage are different from expected based on chain.')
-      }
-      appended_bed <- rbind(success_bed, merge(not_in_success_bed, bed_homoplas_dele, by=c('chr','start','end')))
-      appended_bed <- appended_bed[order(appended_bed[['start']]),]
-      row.names(appended_bed) <- NULL
-      if ((nrow(bed_entries_missing_in_db(full_bed, appended_bed)) > 0) | (!all(appended_bed[['end']] == 1:target_len))) {
-        stop('ERROR: the final lifted over bed file should have one row per position on the mtDNA.')
-      }
-    }
-
-    final_tsv <- appended_bed
-    names(final_tsv) <- c('chrom', 'to_rm', 'pos', 'coverage')
-    final_tsv[['target']] <- '.'
-    write.table(final_tsv[,c('chrom','pos','target','coverage')], "~{d}{this_sample}.appended.liftedOver.tsv", row.names=F, sep='\t', quote=F)
-    CODE
-
-    R --vanilla <<CODE
-      dfLiftover = read.csv("~{d}{this_litover_stats}", sep='\t', stringsAsFactors=F)
-      df = data.frame(mean_coverage = "~{d}{this_mean_cov}",
-                      median_coverage = "~{d}{this_median_cov}",
-                      major_haplogroup = "~{d}{this_maj_haplo}",
-                      contamination = "~{d}{this_contam}",
-                      nuc_variants_pass = "~{d}{this_nuc_var_pass}",
-                      n_reads_unpaired_dropped = "~{d}{this_n_reads_drop}",
-                      nuc_variants_dropped = "~{d}{this_nuc_var_drop}",
-                      mtdna_consensus_overlaps = "~{d}{this_mt_overlap}",
-                      nuc_consensus_overlaps = "~{d}{this_nuc_overlap}")
-      write.table(cbind(dfLiftover, df), "~{d}{this_sample}_mtanalysis_diagnostic_statistics.tsv", row.names=F, sep='\t', quote=F)
-    CODE
+    Rscript --vanilla ~{coverage_helpers_script} write-diagnostic-statistics \
+      "~{d}{this_litover_stats}" \
+      "~{d}{this_sample}_mtanalysis_diagnostic_statistics.tsv" \
+      "~{d}{this_mean_cov}" \
+      "~{d}{this_median_cov}" \
+      "~{d}{this_maj_haplo}" \
+      "~{d}{this_contam}" \
+      "~{d}{this_nuc_var_pass}" \
+      "~{d}{this_n_reads_drop}" \
+      "~{d}{this_nuc_var_drop}" \
+      "~{d}{this_mt_overlap}" \
+      "~{d}{this_nuc_overlap}"
   >>>
 
   output {
@@ -2708,6 +2617,7 @@ task LiftOverAndJoinCoverage {
     File self_table
     File self_table_shifted
     File? chain
+    File coverage_helpers_script
     Int? preemptible_tries
     Int? mem
     Boolean? use_fast_join = true
@@ -2733,85 +2643,13 @@ task LiftOverAndJoinCoverage {
     liftOver per_base_coverage.bed ~{chain} ~{output_bed} ~{rejects}
     liftOver per_base_coverage_shifted.bed ~{chain} ~{output_bed_shifted} ~{rejects_shifted}
 
-    R --vanilla <<CODE
-      use_fast_join <- "~{use_fast_join}" == "true"
-      ref_pre_bed <- read.csv("per_base_coverage_pre.bed", header=F, sep='\t', col.names=c('chr','start','end','cov_ref','target'), comment.char='#', stringsAsFactors=F)
-      self_lifted_bed <- read.csv("~{output_bed}", header=F, sep='\t', col.names=c('chr','start','end','cov_self_ref','target'), comment.char='#', stringsAsFactors=F)
-      self_lifted_shifted_bed <- read.csv("~{output_bed_shifted}", header=F, sep='\t', col.names=c('chr','start','end','cov_self_ref_shifted','target'), comment.char='#', stringsAsFactors=F)
-      original_cov <- read.csv('~{ref_table}', sep='\t', stringsAsFactors=F)
-
-      edit_self_bed <- function(self_lifted_bed) {
-        chr_to_convert <- unique(self_lifted_bed[['chr']])
-        mapped_chrs <- lapply(chr_to_convert, function(x) unique(original_cov[['chrom']][original_cov[['target']] == x]))
-        if(!all(sapply(mapped_chrs,length) == 1)) {
-          stop('ERROR: some intervals did not map to chromosomes in the original reference coverage files (or mapped to multiple).')
-        }
-        chr_mapper <- sapply(mapped_chrs,function(x)x[[1]])
-        names(chr_mapper) <- chr_to_convert
-        self_lifted_bed[['chr']] <- chr_mapper[self_lifted_bed[['chr']]]
-        split_by_targ <- split(self_lifted_bed, self_lifted_bed[['target']])
-        split_by_targ_updated <- lapply(names(split_by_targ), function(x) {
-          this_tab <- split_by_targ[[x]]
-          filtered_ref_start <- ref_pre_bed[ref_pre_bed[['target']] == x,][['start']]
-          this_tab[['start']] <- this_tab[['start']] + filtered_ref_start[1]
-          this_tab[['end']] <- this_tab[['end']] + filtered_ref_start[1]
-          return(this_tab)
-        })
-        self_lifted_bed <- do.call("rbind", split_by_targ_updated)
-        return(self_lifted_bed)
-      }
-
-      ensure_unique <- function(tab, keep_cols=F) {
-        tf_redundant <- all(tab[['end']] - tab[['start']]) == 1
-        if (tf_redundant) {
-          tab[['joiner']] <- paste0(tab[['chr']], ':', tab[['start']], ':', tab[['target']])
-          vals <- c('chr', 'start', 'target')
-        } else {
-          stop('ERROR: end is not the same as start+1 -- this is not handled.')
-          tab[['joiner']] <- paste0(tab[['chr']], ':', tab[['start']], ':', tab[['end']], ':', self_lifted_bed[['target']])
-          vals <- c('chr', 'start', 'end', 'target')
-        }
-        if (!keep_cols) {
-          tab <- tab[,-1*which(names(tab) %in% vals)]
-        }
-        if (any(duplicated(tab[['joiner']]))) {
-          stop('Joining rows not unique. This means you have duplicate loci in the per-base coverage results.')
-        } else {
-          return(list('vals' = vals, 'tab' = tab))
-        }
-      }
-
-      fast_join <- function(tab1, tab2, by, target) {
-        all_keys <- unique(c(tab1[[by]], tab2[[by]]))
-        new_keys <- all_keys[!all_keys %in% tab1[[by]]]
-        if (length(new_keys) > 0) {
-          new_df <- data.frame(ff = new_keys)
-          names(new_df) <- by
-          new_df[setdiff(names(tab1), names(new_df))] <- NA
-          tab1 <- rbind(tab1, new_df)
-        }
-        tab1[[target]] <- tab2[[target]][match(tab1[[by]], tab2[[by]])]
-        return(tab1)
-      }
-
-      self_lifted_bed <- edit_self_bed(self_lifted_bed)
-      self_lifted_shifted_bed <- edit_self_bed(self_lifted_shifted_bed)
-
-      if (use_fast_join) {
-        ref_pre_bed <- ensure_unique(ref_pre_bed, T)
-        self_lifted_bed <- ensure_unique(self_lifted_bed)
-        self_lifted_shifted_bed <- ensure_unique(self_lifted_shifted_bed)
-        joint_bed <- fast_join(ref_pre_bed[['tab']], self_lifted_bed[['tab']], by='joiner', target='cov_self_ref')
-        joint_bed <- fast_join(joint_bed, self_lifted_shifted_bed[['tab']], by='joiner', target='cov_self_ref_shifted')
-        names(joint_bed) <- c('chrom', 'to_rm', 'pos', 'coverage_original', 'target', 'to_rm2', 'coverage_remapped_self', 'coverage_remapped_self_shifted')
-      } else {
-        joint_bed <- merge(ref_pre_bed, self_lifted_bed, by=c('chr', 'start', 'end', 'target'), all=TRUE)
-        joint_bed <- merge(joint_bed, self_lifted_shifted_bed, by=c('chr', 'start', 'end', 'target'), all=TRUE)
-        names(joint_bed) <- c('chrom', 'to_rm', 'pos', 'target', 'coverage_original', 'coverage_remapped_self', 'coverage_remapped_self_shifted')
-      }
-
-      write.table(joint_bed[,c('chrom','pos','target','coverage_original','coverage_remapped_self','coverage_remapped_self_shifted')], "cov.tsv", row.names=F, sep='\t', quote=F)
-    CODE
+    Rscript --vanilla ~{coverage_helpers_script} join-lifted-coverage \
+      "~{ref_table}" \
+      per_base_coverage_pre.bed \
+      "~{output_bed}" \
+      "~{output_bed_shifted}" \
+      cov.tsv \
+      "~{use_fast_join}"
 
     bgzip -c cov.tsv > ~{final_tsv}.bgz
   >>>

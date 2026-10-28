@@ -1,25 +1,33 @@
-# offline resources
-/resources/cromwell
-/resources/docker
-/resources/gatk
-/resources/grch38
+# large input files
+inputs/wgs/**
 
 # outputs
 /outputs/**
 /cromwell-outputs/**
 /cromwell-executions/**
-/cromwell-workflow-logs/**
+/cromwell-logs/**
 
-# archive
-/archive/
+# offline resources
+/resources/grch38
+/resources/jar/**
+!/resources/jar/haplocheckCLI.jar
 
 # large objects
-*.jar
-!resources/scripts/haplocheckCLI.jar
 *.tar.gz
-/inputs/wgs/NA18484/NA18484.final.cram
-/inputs/wgs/NA18484/NA18484.final.cram.crai
-/inputs/wgs/NA18484/NA18484.final.dict
 
-# copy trace
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.TemporaryItems/
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+
+# Windows copy trace
 *:Zone.Identifier

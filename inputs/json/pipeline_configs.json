@@ -1,0 +1,24 @@
+{
+  "runner": {
+    "cromwell_jar": "resources/jar/cromwell-92.jar",
+    "womtool_jar": "resources/jar/womtool-92.jar",
+    "cromwell_config": "inputs/config/cromwell-local-single.conf"
+  },
+
+  "workflow": {
+    "wdl": "inputs/wdl/SwirlPipeline.wdl",
+    "files": "inputs/json/pipeline_files.json",
+    "scripts": "inputs/json/pipeline_scripts.json",
+    "output_root": "outputs/cromwell-outputs/SwirlPipeline",
+    "dependencies": {
+      "tools_path": "$HOME/miniconda3/envs/mtSwirl-tools",
+      "hail_path": "$HOME/miniconda3/envs/mtSwirl-hail",
+      "haplocheck_cli": "resources/jar/haplocheckCLI.jar"
+    },
+    "options": {
+      "MitochondriaPipeline.printreads_mem": 5,
+      "MitochondriaPipeline.skip_restore_hardclips": true,
+      "MitochondriaPipeline.force_manual_download": false
+    }
+  }
+}

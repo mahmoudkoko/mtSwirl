@@ -1,7 +1,4 @@
 {
-  "MitochondriaPipeline.sample_name": "NA18484",
-  "MitochondriaPipeline.wgs_aligned_input_bam_or_cram": "inputs/wgs/NA18484/NA18484.chrM.cram",
-  "MitochondriaPipeline.wgs_aligned_input_bam_or_cram_index": "inputs/wgs/NA18484/NA18484.chrM.cram.crai",
   "MitochondriaPipeline.ref_fasta": "resources/grch38/Homo_sapiens_assembly38.fasta",
   "MitochondriaPipeline.ref_fasta_index": "resources/grch38/Homo_sapiens_assembly38.fasta.fai",
   "MitochondriaPipeline.ref_dict": "resources/grch38/Homo_sapiens_assembly38.dict",
@@ -13,13 +10,5 @@
   "MitochondriaPipeline.nuc_interval_list": "resources/files/NUMTv3_all385.hg38.interval_list",
   "MitochondriaPipeline.mt_interval_list": "resources/files/chrM.hg38.interval_list",
   "MitochondriaPipeline.control_region_shifted_reference_interval_list": "resources/files/control_region_shifted.chrM.interval_list",
-  "MitochondriaPipeline.non_control_region_interval_list": "resources/files/non_control_region.chrM.interval_list",
-  "MitochondriaPipeline.FaRenamingScript": "resources/scripts/compatibilify_fa_intervals_consensus.R",
-  "MitochondriaPipeline.CheckVariantBoundsScript": "resources/scripts/check_variant_bounds.R",
-  "MitochondriaPipeline.CheckHomOverlapScript": "resources/scripts/check_overlapping_homoplasmies.R",
-  "MitochondriaPipeline.HailLiftover": "resources/scripts/fix_liftover.py",
-  "MitochondriaPipeline.haplocheck_cli": "resources/scripts/haplocheckCLI.jar",
-  "MitochondriaPipeline.JsonTools": "resources/scripts/jsontools.py",
-  "MitochondriaPipeline.printreads_mem": 5,
-  "MitochondriaPipeline.skip_restore_hardclips": true
+  "MitochondriaPipeline.non_control_region_interval_list": "resources/files/non_control_region.chrM.interval_list"
 }
