@@ -8,6 +8,11 @@ workflow AlignAndCallR1 {
   }
 
   input {
+    File NucHaplotypeCallerScript
+    File Mutect2NucScript
+    File Mutect2MtInitialScript
+    File FilterContaminationScript
+    File GetContaminationScript
     File input_bam
     File input_bai
     String sample_name
@@ -28,14 +33,18 @@ workflow AlignAndCallR1 {
     Int mt_mean_coverage
 
     Boolean use_haplotype_caller_nucdna
-    Int hc_dp_lower_bound
+    Int haplotype_caller_nucdna_dp_lower_bound
     String? m2_extra_args
     String? m2_filter_extra_args
     Float? vaf_filter_threshold
     Float? f_score_beta
-    Float? verifyBamID
+    Float nuc_contamination_estimate
 
     File haplocheck_cli
+
+    Int mem_small
+    Int mem_standard
+    Int mem_mutect_mt
   }
 
   parameter_meta {
@@ -44,6 +53,7 @@ workflow AlignAndCallR1 {
   if (use_haplotype_caller_nucdna) {
     call MongoTasks_Single.MongoHC as CallNucHCIntegrated {
       input:
+        hc_script = NucHaplotypeCallerScript,
         input_bam = input_bam,
         input_bai = input_bai,
         sample_name = sample_name,
@@ -52,13 +62,14 @@ workflow AlignAndCallR1 {
         ref_fai = ref_fasta_index,
         ref_dict = ref_dict,
         suffix = '.nuc',
-        hc_dp_lower_bound = hc_dp_lower_bound,
-        mem = 4
+        haplotype_caller_nucdna_dp_lower_bound = haplotype_caller_nucdna_dp_lower_bound,
+        mem = mem_standard
     }
   }
   if (!use_haplotype_caller_nucdna) {
     call MongoTasks_Single.MongoNucM2 as CallNucM2Integrated {
       input:
+        m2_script = Mutect2NucScript,
         input_bam = input_bam,
         input_bai = input_bai,
         sample_name = sample_name,
@@ -73,20 +84,19 @@ workflow AlignAndCallR1 {
 
         max_alt_allele_count = 4,
         vaf_filter_threshold = 0.95,
-        verifyBamID = verifyBamID,
+        nuc_contamination_estimate = nuc_contamination_estimate,
 
-        mem = 4
+        mem = mem_standard
     }
   }
 
-  Int M2_mem = if mt_mean_coverage > 25000 then 14 else 7
-
   call MongoTasks_Single.MongoRunM2InitialFilterSplit as CallMt {
     input:
+      m2_script = Mutect2MtInitialScript,
       sample_name = sample_name,
       input_bam = input_bam,
       input_bai = input_bai,
-      verifyBamID = verifyBamID,
+      nuc_contamination_estimate = nuc_contamination_estimate,
       mt_interval_list = mt_interval_list,
       ref_fasta = mt_fasta,
       ref_fai = mt_fasta_index,
@@ -99,19 +109,23 @@ workflow AlignAndCallR1 {
       blacklisted_sites_index = blacklisted_sites_index,
       f_score_beta = f_score_beta,
       m2_extra_args = select_first([m2_extra_args, ""]),
-      mem = M2_mem
+      mean_coverage = mt_mean_coverage,
+      mem = mem_mutect_mt
   }
 
   call MongoTasks_Single.GetContamination {
     input:
+      contamination_script = GetContaminationScript,
       input_vcf = CallMt.vcf_for_haplochecker,
       sample_name = sample_name,
       mean_coverage = mt_mean_coverage,
-      haplocheck_cli = haplocheck_cli
+      haplocheck_cli = haplocheck_cli,
+      mem = mem_small
   }
 
   call MongoTasks_Single.MongoM2FilterContaminationSplit as FilterContamination {
     input:
+      filter_script = FilterContaminationScript,
       raw_vcf = CallMt.filtered_vcf,
       raw_vcf_stats = CallMt.stats,
       sample_name = sample_name,
@@ -119,7 +133,7 @@ workflow AlignAndCallR1 {
       contamination_major = GetContamination.major_level,
       contamination_minor = GetContamination.minor_level,
       suffix = "",
-      verifyBamID = verifyBamID,
+      nuc_contamination_estimate = nuc_contamination_estimate,
       ref_fasta = mt_fasta,
       ref_fai = mt_fasta_index,
       ref_dict = mt_dict,
@@ -128,7 +142,8 @@ workflow AlignAndCallR1 {
       vaf_filter_threshold = vaf_filter_threshold,
       blacklisted_sites = blacklisted_sites,
       blacklisted_sites_index = blacklisted_sites_index,
-      f_score_beta = f_score_beta
+      f_score_beta = f_score_beta,
+      mem = mem_standard
   }
 
   output {

@@ -1,25 +1,32 @@
 {
-  "runner": {
-    "cromwell_jar": "resources/jar/cromwell-92.jar",
-    "womtool_jar": "resources/jar/womtool-92.jar",
-    "cromwell_config": "inputs/config/cromwell-local-single.conf"
-  },
-
   "workflow": {
     "wdl": "inputs/wdl/SwirlPipeline.wdl",
     "files": "inputs/json/pipeline_files.json",
     "scripts": "inputs/json/pipeline_scripts.json",
     "output_root": "outputs/cromwell-outputs/SwirlPipeline",
     "dependencies": {
-      "tools_path": "$HOME/miniconda3/envs/mtSwirl-tools",
-      "hail_path": "$HOME/miniconda3/envs/mtSwirl-hail",
+      "tools_path": "$CONDA_PREFIX/envs/mtSwirl-tools",
       "haplocheck_cli": "resources/jar/haplocheckCLI.jar"
     },
     "options": {
-      "MitochondriaPipeline.printreads_mem": 5,
+      "SwirlPipeline.mem_small": 2,
+      "SwirlPipeline.mem_standard": 4,
+      "SwirlPipeline.mem_mutect_mt": 6,
+      "SwirlPipeline.mem_align": 6,
+      "SwirlPipeline.hail_mem": 4,
       "MitochondriaPipeline.skip_restore_hardclips": true,
-      "SwirlPipeline.vaf_filter_threshold": 0.001,
-      "SwirlPipeline.max_read_length": 151
+      "SwirlPipeline.vaf_filter_threshold": 0.0001,
+      "SwirlPipeline.max_read_length": 151,
+      "MitochondriaPipeline.compute_numt_coverage": false,
+      "MitochondriaPipeline.use_haplotype_caller_nucdna": true,
+      "MitochondriaPipeline.haplotype_caller_nucdna_dp_lower_bound": 10,
+      "MitochondriaPipeline.n_cpu_bwa": 2,
+      "MitochondriaPipeline.f_score_beta": 1,
+      "MitochondriaPipeline.nuc_contamination_estimate": 0.0,
+      "MitochondriaPipeline.m2_extra_args": null,
+      "MitochondriaPipeline.m2_filter_extra_args": null,
+      "MitochondriaPipeline.printreads_extra_args": null,
+      "MitochondriaPipeline.requester_pays_project": null
     }
   }
 }

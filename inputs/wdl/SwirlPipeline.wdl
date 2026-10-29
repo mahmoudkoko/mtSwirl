@@ -35,9 +35,20 @@ workflow SwirlPipeline {
     File non_control_region_interval_list
 
     File HailLiftover
+    File LiftoverVcfScript
     File HailForceCallScript
     File CoverageMetricsScript
+    File AlignToMtRefScript
+    File SubsetBamScript
+    File NucHaplotypeCallerScript
+    File CallMtScript
+    File Mutect2NucScript
+    File Mutect2MtInitialScript
+    File FilterContaminationScript
+    File GetContaminationScript
+    File LiftoverCollectScript
     File SelfReferenceHelperScript
+    File ProduceSelfReferenceScript
     File CoverageHelpersScript
     File haplocheck_cli
     File FaRenamingScript
@@ -51,12 +62,17 @@ workflow SwirlPipeline {
     String? printreads_extra_args
     Float? vaf_filter_threshold
     Float? f_score_beta
-    Float? verifyBamID
+    Float nuc_contamination_estimate = 0.0
     Boolean compute_numt_coverage = false
     Boolean use_haplotype_caller_nucdna = true
     Boolean skip_restore_hardclips = false
     Int haplotype_caller_nucdna_dp_lower_bound = 10
-    Int? printreads_mem
+    # Memory in GB per group of tasks; each task's JVM heap is mem*1000 - 500 MB.
+    Int mem_small = 2
+    Int mem_standard = 4
+    Int mem_mutect_mt = 6
+    Int mem_align = 6
+    Int hail_mem = 4
     Int? n_cpu_bwa
   }
 
@@ -89,10 +105,21 @@ workflow SwirlPipeline {
           non_control_region_interval_list = non_control_region_interval_list,
 
           HailLiftover = HailLiftover,
+          LiftoverVcfScript = LiftoverVcfScript,
           HailForceCallScript = HailForceCallScript,
           SelfReferenceHelperScript = SelfReferenceHelperScript,
+          ProduceSelfReferenceScript = ProduceSelfReferenceScript,
           CoverageHelpersScript = CoverageHelpersScript,
           CoverageMetricsScript = CoverageMetricsScript,
+          AlignToMtRefScript = AlignToMtRefScript,
+          SubsetBamScript = SubsetBamScript,
+          NucHaplotypeCallerScript = NucHaplotypeCallerScript,
+          CallMtScript = CallMtScript,
+          Mutect2NucScript = Mutect2NucScript,
+          Mutect2MtInitialScript = Mutect2MtInitialScript,
+          FilterContaminationScript = FilterContaminationScript,
+          GetContaminationScript = GetContaminationScript,
+          LiftoverCollectScript = LiftoverCollectScript,
           haplocheck_cli = haplocheck_cli,
           FaRenamingScript = FaRenamingScript,
           CheckVariantBoundsScript = CheckVariantBoundsScript,
@@ -104,12 +131,16 @@ workflow SwirlPipeline {
           printreads_extra_args = printreads_extra_args,
           vaf_filter_threshold = vaf_filter_threshold,
           f_score_beta = f_score_beta,
-          verifyBamID = verifyBamID,
+          nuc_contamination_estimate = nuc_contamination_estimate,
           compute_numt_coverage = compute_numt_coverage,
           use_haplotype_caller_nucdna = use_haplotype_caller_nucdna,
           haplotype_caller_nucdna_dp_lower_bound = haplotype_caller_nucdna_dp_lower_bound,
 
-          printreads_mem = printreads_mem,
+          mem_small = mem_small,
+          mem_standard = mem_standard,
+          mem_mutect_mt = mem_mutect_mt,
+          mem_align = mem_align,
+          hail_mem = hail_mem,
           n_cpu_bwa = n_cpu_bwa
     }
   }
@@ -121,7 +152,8 @@ workflow SwirlPipeline {
       coverage_table = ProcessSingleSample.final_base_level_coverage_metrics,
       statistics = ProcessSingleSample.stats_outputs,
       MergePerBatch = MergePerBatch,
-      coverage_helpers_script = CoverageHelpersScript
+      coverage_helpers_script = CoverageHelpersScript,
+      hail_mem = hail_mem
   }
 
   output {

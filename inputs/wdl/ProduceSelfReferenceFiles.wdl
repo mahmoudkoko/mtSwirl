@@ -58,6 +58,10 @@ workflow ProduceSelfReferenceFiles {
     File CheckHomOverlapScript
     File HailForceCallScript
     File SelfReferenceHelperScript
+    File ProduceSelfReferenceScript
+
+    Int mem_small
+    Int hail_mem
   }
 
   call MongoTasks_Single.MongoProduceSelfReference as ProduceSelfReference {
@@ -78,8 +82,11 @@ workflow ProduceSelfReferenceFiles {
       check_hom_overlap_script = CheckHomOverlapScript,
       hail_force_call_script = HailForceCallScript,
       self_reference_helper_script = SelfReferenceHelperScript,
+      produce_self_reference_script = ProduceSelfReferenceScript,
       non_control_region_interval_list = non_control_region_interval_list,
-      n_shift = n_shift
+      n_shift = n_shift,
+      mem = mem_small,
+      hail_mem = hail_mem
   }
 
   call MongoTasks_Single.MongoChainSwapLiftoverBed as ChainSwapLiftoverBed {

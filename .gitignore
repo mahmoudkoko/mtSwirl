@@ -3,7 +3,6 @@ inputs/wgs/**
 
 # outputs
 /outputs/**
-/temp/
 /cromwell-outputs/**
 /cromwell-executions/**
 /cromwell-logs/**
@@ -32,3 +31,7 @@ inputs/wgs/**
 
 # Windows copy trace
 *:Zone.Identifier
+
+# temporary files
+**/__pycache__
+**/*.pyc

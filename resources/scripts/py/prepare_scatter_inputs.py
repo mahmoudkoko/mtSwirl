@@ -32,7 +32,6 @@ ALIASES = {
     },
 }
 WRAPPER_PREFIX = "SwirlPipeline."
-LEGACY_WRAPPER_PREFIX = "MitochondriaPipelineWrapper."
 PIPELINE_PREFIX = "MitochondriaPipeline."
 HELPER_SCRIPT_KEYS = {
     "SwirlPipeline.prepare_script",
@@ -123,8 +122,6 @@ def read_manifest(manifest, repo_root):
 def wrapper_key(key):
     if key.startswith(WRAPPER_PREFIX):
         return key
-    if key.startswith(LEGACY_WRAPPER_PREFIX):
-        return WRAPPER_PREFIX + key[len(LEGACY_WRAPPER_PREFIX) :]
     if key.startswith(PIPELINE_PREFIX):
         return WRAPPER_PREFIX + key[len(PIPELINE_PREFIX) :]
     raise ValueError(

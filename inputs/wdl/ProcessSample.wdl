@@ -37,9 +37,20 @@ workflow MitochondriaPipeline {
     File non_control_region_interval_list
 
     File HailLiftover
+    File LiftoverVcfScript
     File HailForceCallScript
     File CoverageMetricsScript
+    File AlignToMtRefScript
+    File SubsetBamScript
+    File NucHaplotypeCallerScript
+    File CallMtScript
+    File Mutect2NucScript
+    File Mutect2MtInitialScript
+    File FilterContaminationScript
+    File GetContaminationScript
+    File LiftoverCollectScript
     File SelfReferenceHelperScript
+    File ProduceSelfReferenceScript
     File CoverageHelpersScript
     File haplocheck_cli
     File FaRenamingScript
@@ -52,7 +63,7 @@ workflow MitochondriaPipeline {
     String? printreads_extra_args
     Float? vaf_filter_threshold
     Float? f_score_beta
-    Float? verifyBamID
+    Float nuc_contamination_estimate = 0.0
     Boolean compute_numt_coverage = false
     Boolean use_haplotype_caller_nucdna = true
     Int haplotype_caller_nucdna_dp_lower_bound = 10
@@ -60,7 +71,12 @@ workflow MitochondriaPipeline {
     # Some CRAMs (e.g., AoU) contain an XQ tag that doesn't play well with gatk RevertSam.
     # Enable this flag to avoid using this tag by skipping the restore hardclips step.
     Boolean skip_restore_hardclips = false
-    Int? printreads_mem
+    # Memory in GB per group of tasks; each task's JVM heap is mem*1000 - 500 MB.
+    Int mem_small = 2
+    Int mem_standard = 4
+    Int mem_mutect_mt = 6
+    Int mem_align = 6
+    Int hail_mem = 4
     Int? n_cpu_bwa
   }
 
@@ -86,16 +102,22 @@ workflow MitochondriaPipeline {
       ref_fasta_index = ref_fasta_index,
       ref_dict = ref_dict,
       coverage_metrics_script = CoverageMetricsScript,
+      subset_script = SubsetBamScript,
       requester_pays_project = requester_pays_project,
       printreads_extra_args = printreads_extra_args,
       read_length = max_read_length,
       skip_restore_hardclips = skip_restore_hardclips,
       coverage_cap = 100000,
-      mem = printreads_mem
+      mem = mem_standard
   }
 
   call AlignAndCallR1_Single.AlignAndCallR1 as AlignAndCallR1 {
     input:
+      NucHaplotypeCallerScript = NucHaplotypeCallerScript,
+      Mutect2NucScript = Mutect2NucScript,
+      Mutect2MtInitialScript = Mutect2MtInitialScript,
+      FilterContaminationScript = FilterContaminationScript,
+      GetContaminationScript = GetContaminationScript,
       input_bam = SubsetBamToChrMAndRevert.output_bam,
       input_bai = SubsetBamToChrMAndRevert.output_bai,
       sample_name = sample_name,
@@ -115,10 +137,13 @@ workflow MitochondriaPipeline {
       m2_filter_extra_args = m2_filter_extra_args,
       vaf_filter_threshold = vaf_filter_threshold,
       f_score_beta = f_score_beta,
-      verifyBamID = verifyBamID,
+      nuc_contamination_estimate = nuc_contamination_estimate,
       use_haplotype_caller_nucdna = use_haplotype_caller_nucdna,
-      hc_dp_lower_bound = haplotype_caller_nucdna_dp_lower_bound,
-      haplocheck_cli = haplocheck_cli
+      haplotype_caller_nucdna_dp_lower_bound = haplotype_caller_nucdna_dp_lower_bound,
+      haplocheck_cli = haplocheck_cli,
+      mem_small = mem_small,
+      mem_standard = mem_standard,
+      mem_mutect_mt = mem_mutect_mt
   }
 
   call ProduceSelfReferenceFiles_Single.ProduceSelfReferenceFiles as ProduceSelfRefFiles {
@@ -143,13 +168,18 @@ workflow MitochondriaPipeline {
       CheckVariantBoundsScript = CheckVariantBoundsScript,
       CheckHomOverlapScript = CheckHomOverlapScript,
       HailForceCallScript = HailForceCallScript,
-      SelfReferenceHelperScript = SelfReferenceHelperScript
+      SelfReferenceHelperScript = SelfReferenceHelperScript,
+      ProduceSelfReferenceScript = ProduceSelfReferenceScript,
+      mem_small = mem_small,
+      hail_mem = hail_mem
   }
 
   call AlignAndCallR2_Single.AlignAndCallR2 as AlignAndCallR2 {
     input:
       unmapped_bam = SubsetBamToChrMAndRevert.unmapped_bam,
       CoverageMetricsScript = CoverageMetricsScript,
+      AlignToMtRefScript = AlignToMtRefScript,
+      CallMtScript = CallMtScript,
       sample_name = sample_name,
       suffix = self_ref_suffix,
 
@@ -181,12 +211,15 @@ workflow MitochondriaPipeline {
       m2_filter_extra_args = m2_filter_extra_args,
       vaf_filter_threshold = vaf_filter_threshold,
       f_score_beta = f_score_beta,
-      verifyBamID = verifyBamID,
+      nuc_contamination_estimate = nuc_contamination_estimate,
       max_read_length = max_read_length,
       hasContamination = AlignAndCallR1.hasContamination,
       contamination_major = AlignAndCallR1.contamination_major,
       contamination_minor = AlignAndCallR1.contamination_minor,
-      n_cpu_bwa = n_cpu_bwa
+      n_cpu_bwa = n_cpu_bwa,
+      mem_small = mem_small,
+      mem_align = mem_align,
+      mem_mutect_mt = mem_mutect_mt
   }
 
   call MongoTasks_Single.MongoLiftoverVCFAndGetCoverage as LiftOverAfterSelf {
@@ -216,6 +249,8 @@ workflow MitochondriaPipeline {
       ref_fasta_index = mt_fasta_index,
       ref_dict = mt_dict,
       HailLiftover = HailLiftover,
+      liftover_vcf_script = LiftoverVcfScript,
+      hail_mem = hail_mem,
       coverage_helpers_script = CoverageHelpersScript,
       self_suffix = self_ref_suffix,
 
@@ -228,7 +263,7 @@ workflow MitochondriaPipeline {
       chain = ProduceSelfRefFiles.self_to_ref_chain,
       homoplasmic_deletions_coverage = LiftOverAfterSelf.gap_coverage,
       coverage_helpers_script = CoverageHelpersScript,
-      
+      collect_script = LiftoverCollectScript,
       liftover_table = LiftOverAfterSelf.liftoverStats,
       mean_coverage = AlignAndCallR2.mean_coverage,
       median_coverage = AlignAndCallR2.median_coverage,

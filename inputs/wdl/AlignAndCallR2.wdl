@@ -10,6 +10,8 @@ workflow AlignAndCallR2 {
   input {
     File unmapped_bam
     File CoverageMetricsScript
+    File AlignToMtRefScript
+    File CallMtScript
     String sample_name
     String suffix
 
@@ -45,7 +47,7 @@ workflow AlignAndCallR2 {
     String? m2_filter_extra_args
     Float? vaf_filter_threshold
     Float? f_score_beta
-    Float? verifyBamID
+    Float nuc_contamination_estimate
     String hasContamination
     Float contamination_major
     Float contamination_minor
@@ -54,6 +56,10 @@ workflow AlignAndCallR2 {
     # affected by this number. Default is 151.
     Int? max_read_length
     Int? n_cpu_bwa
+
+    Int mem_small
+    Int mem_align
+    Int mem_mutect_mt
   }
 
   parameter_meta {
@@ -64,6 +70,7 @@ workflow AlignAndCallR2 {
     input:
       input_bam = unmapped_bam,
       coverage_metrics_script = CoverageMetricsScript,
+      align_script = AlignToMtRefScript,
       sample_base_name = sample_name,
       suffix = suffix,
 
@@ -87,13 +94,13 @@ workflow AlignAndCallR2 {
 
       read_length = max_read_length,
       coverage_cap = 100000,
-      n_cpu = n_cpu_bwa
+      n_cpu = n_cpu_bwa,
+      mem = mem_align
   }
-
-  Int M2_mem = if AlignToMtRegShiftedAndMetrics.mean_coverage > 25000 then 14 else 7
 
   call MongoTasks_Single.MongoCallMtAndShifted as CallMtAndShifted {
     input:
+      call_mt_script = CallMtScript,
       sample_base_name = sample_name,
       suffix = suffix,
       # Everything is called except the control region.
@@ -115,7 +122,8 @@ workflow AlignAndCallR2 {
       shifted_mt_interval_list = control_shifted,
       shifted_m2_extra_args = select_first([m2_extra_args, ""]),
       shifted_force_call_vcf = force_call_vcf_shifted,
-      mem = M2_mem
+      mean_coverage = AlignToMtRegShiftedAndMetrics.mean_coverage,
+      mem = mem_mutect_mt
   }
 
   call MongoTasks_Single.MongoLiftoverCombineMergeFilterContamSplit as LiftoverCombineMergeFilterContamSplit {
@@ -139,12 +147,12 @@ workflow AlignAndCallR2 {
       hasContamination = hasContamination,
       contamination_major = contamination_major,
       contamination_minor = contamination_minor,
-      verifyBamID = verifyBamID,
+      nuc_contamination_estimate = nuc_contamination_estimate,
       m2_extra_filtering_args = m2_filter_extra_args,
       max_alt_allele_count = 4,
       vaf_filter_threshold = vaf_filter_threshold,
       f_score_beta = f_score_beta,
-      
+      mem = mem_small
   }
 
   output {

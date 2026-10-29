@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 
-RUNNER_KEYS = ("cromwell_jar", "womtool_jar", "cromwell_config")
 WORKFLOW_KEYS = ("wdl", "files", "scripts", "output_root")
 SWIRL_SCRIPTS_PREFIX = "SwirlPipeline."
 HELPER_SCRIPTS = ("prepare_script", "stage_script")
@@ -84,16 +83,12 @@ def main():
         raise ValueError(f"Invalid JSON in {args.config_json}: {error}") from error
     if not isinstance(config, dict):
         raise ValueError("Pipeline config JSON must contain an object.")
-    runner = require_object(config, "runner", "Pipeline config")
     workflow = require_object(config, "workflow", "Pipeline config")
     dependencies = require_object(workflow, "dependencies", "Pipeline config workflow")
-    for key in RUNNER_KEYS:
-        require_path(runner, key, "runner")
     for key in WORKFLOW_KEYS:
         require_path(workflow, key, "workflow")
     require_path(dependencies, "haplocheck_cli", "workflow.dependencies")
     tools_path = optional_path(dependencies, "tools_path", "TOOLS_PATH", repo_root)
-    hail_path = optional_path(dependencies, "hail_path", "HAIL_PATH", repo_root)
     if not isinstance(workflow.get("options"), dict):
         raise ValueError("Pipeline config 'workflow' must contain an 'options' object.")
 
@@ -104,11 +99,6 @@ def main():
             raise ValueError(f"Configured input JSON file does not exist: {path}")
 
     resolved = {}
-    for key in RUNNER_KEYS:
-        path = expand_path(runner[key], repo_root)
-        if not path.is_file():
-            raise ValueError(f"Configured runner file does not exist: {path}")
-        resolved[key] = str(path)
     for key in WORKFLOW_KEYS:
         path = expand_path(workflow[key], repo_root)
         if key != "output_root" and not path.is_file():
@@ -120,11 +110,7 @@ def main():
         raise ValueError(f"Configured HaploCheck JAR does not exist: {haplocheck_cli}")
 
     values = [
-        hail_path,
         tools_path,
-        resolved["cromwell_jar"],
-        resolved["womtool_jar"],
-        resolved["cromwell_config"],
         resolved["wdl"],
         resolved["prepare_script"],
         resolved["stage_script"],
