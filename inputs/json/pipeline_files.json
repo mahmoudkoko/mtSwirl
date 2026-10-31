@@ -1,0 +1,13 @@
+{
+  "MitochondriaPipeline.ref_fasta": "resources/grch38/Homo_sapiens_assembly38.fasta",
+  "MitochondriaPipeline.ref_fasta_index": "resources/grch38/Homo_sapiens_assembly38.fasta.fai",
+  "MitochondriaPipeline.ref_dict": "resources/grch38/Homo_sapiens_assembly38.dict",
+  "MitochondriaPipeline.mt_fasta": "resources/files/Homo_sapiens_assembly38.chrM.fasta",
+  "MitochondriaPipeline.mt_fasta_index": "resources/files/Homo_sapiens_assembly38.chrM.fasta.fai",
+  "MitochondriaPipeline.mt_dict": "resources/files/Homo_sapiens_assembly38.chrM.dict",
+  "MitochondriaPipeline.blacklisted_sites": "resources/files/blacklist_sites.hg38.chrM.bed",
+  "MitochondriaPipeline.blacklisted_sites_index": "resources/files/blacklist_sites.hg38.chrM.bed.idx",
+  "MitochondriaPipeline.nuc_interval_list": "resources/files/NUMTv3_all385.hg38.interval_list",
+  "MitochondriaPipeline.mt_interval_list": "resources/files/chrM.hg38.interval_list",
+  "MitochondriaPipeline.non_control_region_interval_list": "resources/files/non_control_region.chrM.interval_list"
+}

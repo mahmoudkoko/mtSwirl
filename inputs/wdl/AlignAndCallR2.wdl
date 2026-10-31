@@ -1,0 +1,192 @@
+version 1.0
+
+import "MongoTasks.wdl" as MongoTasks_Single
+
+workflow AlignAndCallR2 {
+  meta {
+    description: "Takes in unmapped bam and outputs VCF of SNP/Indel calls on the mitochondria."
+  }
+
+  input {
+    File unmapped_bam
+    File CoverageMetricsScript
+    File AlignToMtRefScript
+    File CallMtScript
+    String sample_name
+    String suffix
+
+    File mt_interval_list
+
+    File mt_self
+    File mt_self_index
+    File mt_self_dict
+
+    File self_cat
+    File self_cat_index
+    File self_cat_dict
+
+    File mt_self_shifted
+    File mt_self_shifted_index
+    File mt_self_shifted_dict
+
+    File self_shifted_cat
+    File self_shifted_cat_index
+    File self_shifted_cat_dict
+
+    File blacklisted_sites
+    File blacklisted_sites_index
+
+    File force_call_vcf
+    File force_call_vcf_shifted
+    File shift_back_chain
+
+    File non_control_interval
+    File control_shifted
+
+    String? m2_extra_args
+    String? m2_filter_extra_args
+    Float? vaf_filter_threshold
+    Float? f_score_beta
+    Float nuc_contamination_estimate
+    String hasContamination
+    Float contamination_major
+    Float contamination_minor
+
+    # Read length used for optimization only. If this is too small CollectWgsMetrics might fail, but the results are not
+    # affected by this number. Default is 151.
+    Int? max_read_length
+    Int n_cpu = 2
+    String mt_caller = "clairs_to"
+    String clair3_model = "r1041_e82_400bps_sup_v520"
+    String clairs_platform = "ont_r10_dorado_sup_5khz"
+    Int min_aligned_length = 6000
+    Float min_aligned_fraction = 0.95
+    String? tier_thresholds
+
+    Int mem_small
+    Int mem_align
+    Int mem_mutect_mt
+  }
+
+  parameter_meta {
+    unmapped_bam: "Unmapped and subset bam, optionally with original alignment (OA) tag"
+  }
+
+  call MongoTasks_Single.MongoAlignToMtRegShiftedAndMetrics as AlignToMtRegShiftedAndMetrics {
+    input:
+      input_bam = unmapped_bam,
+      coverage_metrics_script = CoverageMetricsScript,
+      align_script = AlignToMtRefScript,
+      sample_base_name = sample_name,
+      suffix = suffix,
+
+      mt = mt_self,
+      mt_index = mt_self_index,
+      mt_dict = mt_self_dict,
+
+      mt_cat = self_cat,
+      mt_cat_index = self_cat_index,
+      mt_cat_dict = self_cat_dict,
+
+      mt_shifted = mt_self_shifted,
+      mt_shifted_index = mt_self_shifted_index,
+      mt_shifted_dict = mt_self_shifted_dict,
+
+      mt_shifted_cat = self_shifted_cat,
+      mt_shifted_cat_index = self_shifted_cat_index,
+      mt_shifted_cat_dict = self_shifted_cat_dict,
+      
+      mt_interval_list = mt_interval_list,
+
+      read_length = max_read_length,
+      coverage_cap = 100000,
+      n_cpu = n_cpu,
+      min_aligned_length = min_aligned_length,
+      min_aligned_fraction = min_aligned_fraction,
+      mem = mem_align
+  }
+
+  call MongoTasks_Single.MongoCallMtAndShifted as CallMtAndShifted {
+    input:
+      call_mt_script = CallMtScript,
+      sample_base_name = sample_name,
+      suffix = suffix,
+      # Everything is called except the control region.
+      input_bam = AlignToMtRegShiftedAndMetrics.mt_aligned_bam,
+      input_bai = AlignToMtRegShiftedAndMetrics.mt_aligned_bai,
+      mt_self = mt_self,
+      mt_self_index = mt_self_index,
+      mt_self_dict = mt_self_dict,
+      mt_interval_list = non_control_interval,
+      m2_extra_args = select_first([m2_extra_args, ""]),
+      force_call_vcf = force_call_vcf,
+
+      # Only the control region is now called.
+      shifted_input_bam = AlignToMtRegShiftedAndMetrics.shifted_mt_aligned_bam,
+      shifted_input_bai = AlignToMtRegShiftedAndMetrics.shifted_mt_aligned_bai,
+      shifted_mt_self = mt_self_shifted,
+      shifted_mt_self_index = mt_self_shifted_index,
+      shifted_mt_self_dict = mt_self_shifted_dict,
+      shifted_mt_interval_list = control_shifted,
+      shifted_m2_extra_args = select_first([m2_extra_args, ""]),
+      shifted_force_call_vcf = force_call_vcf_shifted,
+      mean_coverage = AlignToMtRegShiftedAndMetrics.mean_coverage,
+      mt_caller = mt_caller,
+      clair3_model = clair3_model,
+      clairs_platform = clairs_platform,
+      n_cpu = n_cpu,
+      vaf_filter_threshold = vaf_filter_threshold,
+      mem = mem_mutect_mt
+  }
+
+  call MongoTasks_Single.MongoLiftoverCombineMergeFilterContamSplit as LiftoverCombineMergeFilterContamSplit {
+    input:
+      sample_base_name = sample_name,
+      suffix = suffix,
+
+      mt_self = mt_self,
+      mt_self_index = mt_self_index,
+      mt_self_dict = mt_self_dict,
+      shifted_vcf = CallMtAndShifted.shifted_raw_vcf,
+      shifted_vcf_idx = CallMtAndShifted.shifted_raw_vcf_idx,
+      non_shifted_vcf = CallMtAndShifted.raw_vcf,
+      non_shifted_vcf_idx = CallMtAndShifted.raw_vcf_idx,
+      shifted_stats = CallMtAndShifted.shifted_stats,
+      non_shifted_stats = CallMtAndShifted.stats,
+      shift_back_chain = shift_back_chain, 
+      blacklisted_sites = blacklisted_sites,
+      blacklisted_sites_index = blacklisted_sites_index,
+
+      hasContamination = hasContamination,
+      contamination_major = contamination_major,
+      contamination_minor = contamination_minor,
+      nuc_contamination_estimate = nuc_contamination_estimate,
+      m2_extra_filtering_args = m2_filter_extra_args,
+      max_alt_allele_count = 4,
+      vaf_filter_threshold = vaf_filter_threshold,
+      f_score_beta = f_score_beta,
+      tier_thresholds = tier_thresholds,
+      mem = mem_small
+  }
+
+  output {
+    File mt_aligned_bam = AlignToMtRegShiftedAndMetrics.mt_aligned_bam
+    File mt_aligned_bai = AlignToMtRegShiftedAndMetrics.mt_aligned_bai
+    File mt_aligned_shifted_bam = AlignToMtRegShiftedAndMetrics.shifted_mt_aligned_bam
+    File mt_aligned_shifted_bai = AlignToMtRegShiftedAndMetrics.shifted_mt_aligned_bai
+    File nuc_mt_aligned_bam = AlignToMtRegShiftedAndMetrics.nuc_and_mt_aligned_bam
+    File nuc_mt_aligned_bai = AlignToMtRegShiftedAndMetrics.nuc_and_mt_aligned_bai
+    File nuc_mt_shifted_aligned_bam = AlignToMtRegShiftedAndMetrics.nuc_and_shifted_mt_aligned_bam
+    File nuc_mt_shifted_aligned_bai = AlignToMtRegShiftedAndMetrics.nuc_and_shifted_mt_aligned_bai
+    File out_vcf = LiftoverCombineMergeFilterContamSplit.filtered_vcf
+    File out_vcf_idx = LiftoverCombineMergeFilterContamSplit.filtered_vcf_idx
+    File split_vcf = LiftoverCombineMergeFilterContamSplit.split_vcf
+    File split_vcf_idx = LiftoverCombineMergeFilterContamSplit.split_vcf_idx
+    Array[File] tier_vcfs = LiftoverCombineMergeFilterContamSplit.tier_vcfs
+    File duplicate_metrics = AlignToMtRegShiftedAndMetrics.duplicate_metrics
+    File coverage_metrics = AlignToMtRegShiftedAndMetrics.wgs_metrics
+    File theoretical_sensitivity_metrics = AlignToMtRegShiftedAndMetrics.theoretical_sensitivity
+    Int mean_coverage = AlignToMtRegShiftedAndMetrics.mean_coverage
+    Float median_coverage = AlignToMtRegShiftedAndMetrics.median_coverage
+  }
+}

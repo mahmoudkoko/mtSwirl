@@ -1,0 +1,7 @@
+.git
+archive
+outputs
+inputs/wgs
+resources/grch38
+docs
+**/__pycache__

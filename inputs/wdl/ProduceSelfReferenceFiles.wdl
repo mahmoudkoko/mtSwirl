@@ -1,0 +1,175 @@
+version 1.0
+
+import "MongoTasks.wdl" as MongoTasks_Single
+
+workflow ProduceSelfReferenceFiles {
+  # Running bcftools consensus when an interval file was used upstream to subset the genome
+  #  is problematic because the consensus now is a fasta file with blocks per interval,
+  #  indexed to 1 as the first base in each interval (so chr1 65000-65050 NUMT -> NUMT 1-51).
+  #
+  # See documentation for ProduceSelfReference for how we resolve this -- namely,
+  #  we manually change the name for each interval to chr#:start-end from the interval file definition.
+  #  This results in bcftools consensus producing files that are properly indexed to genomic coordinates,
+  #  critical for getting variants in the VCF to apply to the fasta.
+  #
+  # However this also produces a problem -- the rest of our machinery assumes that nucDNA segments are
+  #  1-indexed. This is important because it is not clear that the GATK/Picard tools
+  #  can infer positional subsets of genomes based on a FASTA header, and we don't want to carry around
+  #  the entire human genome sequence so we want to produce FASTAs with just subsets of the genome. Thus we
+  #  revert the renaming within ProduceSelfReference after variants are successfully applied. 
+  #
+  # We then use CreateSpanIntervalsWithDict to "lift over" the nucDNA and mtDNA intervals files 
+  #  by producing the exactly correct intervals that cover each entire region in the consensus FASTA dict (1-indexed).
+  #
+  # Finally we have to fix the chain files outputted from ProduceSelfReference which
+  #  still use genomic coordinates. To do this we use MoveChainToZero, which renames
+  #  and shifts each chain file block backwards such that it starts at 0 (correct for 1-indexed regions).
+  #
+  # In sum here we produce reference files such that variants are applied appropriately
+  #  even when we have multiple intervals that do not all start at position 1 of the chromosome.
+  #  Outputted files produce "contigs" for each interval, 1-indexed to the start of the interval and not the actual chromosome.
+  #  This part is only supported for nucDNA intervals. The machinery is ready for mtDNA intervals but not tested -- we do not support analysis on subsets of the mtDNA.
+  meta {
+    description: "Produces all relevant self-reference files for version 2.2 of MitochondriaPipeline."
+  }
+
+  input {
+    String sample_name
+    String suffix
+    File mt_fasta
+    File mt_fasta_index
+    File mt_interval_list
+    File non_control_region_interval_list
+    File ref_fasta
+    File ref_fasta_index
+    File nuc_interval_list
+    String reference_name = "reference"
+
+    File blacklisted_sites
+
+    Int n_shift = 8000
+
+    File nuc_variants
+    File mtdna_variants
+
+    Boolean compute_numt_coverage
+    File FaRenamingScript
+    File CheckVariantBoundsScript
+    File CheckHomOverlapScript
+    File HailForceCallScript
+    File SelfReferenceHelperScript
+    File ProduceSelfReferenceScript
+
+    Int mem_small
+    Int hail_mem
+  }
+
+  call MongoTasks_Single.MongoProduceSelfReference as ProduceSelfReference {
+    input:
+      input_mt_vcf = mtdna_variants,
+      input_nuc_vcf = nuc_variants,
+      sample_name = sample_name,
+      suffix = suffix,
+      
+      ref_fasta = ref_fasta,
+      ref_fasta_index = ref_fasta_index,
+      nuc_interval_list = nuc_interval_list,
+      mt_ref_fasta = mt_fasta,
+      mt_ref_fasta_index = mt_fasta_index,
+      mt_interval_list = mt_interval_list,
+      fa_renaming_script = FaRenamingScript,
+      variant_bounds_script = CheckVariantBoundsScript,
+      check_hom_overlap_script = CheckHomOverlapScript,
+      hail_force_call_script = HailForceCallScript,
+      self_reference_helper_script = SelfReferenceHelperScript,
+      produce_self_reference_script = ProduceSelfReferenceScript,
+      non_control_region_interval_list = non_control_region_interval_list,
+      n_shift = n_shift,
+      mem = mem_small,
+      hail_mem = hail_mem
+  }
+
+  call MongoTasks_Single.MongoChainSwapLiftoverBed as ChainSwapLiftoverBed {
+    input:
+      source_chain = ProduceSelfReference.grch38_to_self_chain,
+      input_target_name = sample_name,
+
+      input_source_name = reference_name,
+      input_bed = blacklisted_sites
+  }
+
+  if (compute_numt_coverage) {
+    call MongoTasks_Single.CreateSpanIntervalsWithDict as LiftOverNucReference {
+      input:
+        input_intervals = nuc_interval_list,
+        target_dict = ProduceSelfReference.self_cat_dict,
+        self_reference_helper_script = SelfReferenceHelperScript,
+        intertext = '.nuc'
+    }
+
+    call MongoTasks_Single.CreateSpanIntervalsWithDict as LiftOverNucReferenceShifted {
+      input:
+        input_intervals = nuc_interval_list,
+        target_dict = ProduceSelfReference.self_shifted_cat_dict,
+        self_reference_helper_script = SelfReferenceHelperScript,
+        intertext = '.nuc.shifted'
+    }
+
+    call MongoTasks_Single.ChainSwap as SelfToRefNucLiftoverChain {
+      input:
+        source_chain = ProduceSelfReference.grch38_to_self_nuc_chain,
+        input_source_name = reference_name,
+        input_target_name = sample_name + "_nuc"
+    }
+
+    call MongoTasks_Single.MoveChainToZero {
+      input:
+        source_chain = SelfToRefNucLiftoverChain.chain,
+        ref_intervals = nuc_interval_list,
+        self_reference_helper_script = SelfReferenceHelperScript
+    }
+  }
+
+  output {
+    File mt_self = ProduceSelfReference.self_fasta
+    File mt_self_index = ProduceSelfReference.self_fasta_index
+    File mt_self_dict = ProduceSelfReference.self_dict
+
+    File mt_shifted_self = ProduceSelfReference.self_shifted_fasta
+    File mt_shifted_self_index = ProduceSelfReference.self_shifted_fasta_index
+    File mt_shifted_self_dict = ProduceSelfReference.self_shifted_dict
+
+    File ref_to_self_chain = ProduceSelfReference.grch38_to_self_chain
+    File self_to_ref_chain = ChainSwapLiftoverBed.chain
+    File self_shift_back_chain = ProduceSelfReference.shift_back_chain
+    File? nuc_self_to_ref_chain = MoveChainToZero.chain
+
+    File mt_andNuc_self = ProduceSelfReference.self_cat_fasta
+    File mt_andNuc_self_index = ProduceSelfReference.self_cat_fasta_index
+    File mt_andNuc_self_dict = ProduceSelfReference.self_cat_dict
+
+    File mt_andNuc_shifted_self = ProduceSelfReference.self_shifted_cat_fasta
+    File mt_andNuc_shifted_self_index = ProduceSelfReference.self_shifted_cat_fasta_index
+    File mt_andNuc_shifted_self_dict = ProduceSelfReference.self_shifted_cat_dict
+
+    File ref_homoplasmies_vcf = ProduceSelfReference.filtered_vcf_ref_coord
+    File force_call_vcf = ProduceSelfReference.reversed_hom_vcf
+    File force_call_vcf_idx = ProduceSelfReference.reversed_hom_vcf_idx
+    File force_call_vcf_filters = ProduceSelfReference.reversed_hom_filters_vcf
+    File force_call_vcf_filters_idx = ProduceSelfReference.reversed_hom_filters_vcf_idx
+    File force_call_vcf_shifted = ProduceSelfReference.reversed_hom_vcf_shifted
+    File force_call_vcf_shifted_idx = ProduceSelfReference.reversed_hom_vcf_shifted_idx
+
+    File mt_interval_list_self = ProduceSelfReference.lifted_mt_intervals
+    File? nuc_interval_list_self = LiftOverNucReference.lifted_intervals
+    File? nuc_interval_list_shifted_self = LiftOverNucReferenceShifted.lifted_intervals
+    File blacklisted_sites_self = ChainSwapLiftoverBed.transformed_bed
+    File blacklisted_sites_index_self = ChainSwapLiftoverBed.transformed_bed_index
+    File non_control_interval_self = ProduceSelfReference.lifted_noncontrol_intervals
+    File control_shifted_self = ProduceSelfReference.lifted_control_intervals
+
+    Int nuc_variants_dropped = ProduceSelfReference.nuc_variants_dropped
+    Int mtdna_consensus_overlaps = ProduceSelfReference.mtdna_consensus_overlaps
+    Int nuc_consensus_overlaps = ProduceSelfReference.nuc_consensus_overlaps
+  }
+}

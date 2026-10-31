@@ -1,2 +1,37 @@
+# large input files
+inputs/wgs/**
+
+# outputs
+/outputs/**
+/cromwell-outputs/**
+/cromwell-executions/**
+/cromwell-logs/**
+
+# offline resources
+/resources/grch38
+/resources/jar/**
+!/resources/jar/haplocheckCLI.jar
+
+# large objects
+*.tar.gz
+
+# macOS
 .DS_Store
-.vscode/
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.TemporaryItems/
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+
+# Windows copy trace
+*:Zone.Identifier
+
+# temporary files
+**/__pycache__
+**/*.pyc

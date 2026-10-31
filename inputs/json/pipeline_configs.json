@@ -1,0 +1,39 @@
+{
+  "workflow": {
+    "wdl": "inputs/wdl/SwirlPipeline.wdl",
+    "files": "inputs/json/pipeline_files.json",
+    "scripts": "inputs/json/pipeline_scripts.json",
+    "output_root": "outputs/cromwell-outputs/SwirlPipeline",
+    "dependencies": {
+      "tools_path": "$CONDA_PREFIX/envs/mtSwirl-tools",
+      "haplocheck_cli": "resources/jar/haplocheckCLI.jar"
+    },
+    "options": {
+      "SwirlPipeline.mem_small": 2,
+      "SwirlPipeline.mem_standard": 4,
+      "SwirlPipeline.mem_mutect_mt": 6,
+      "SwirlPipeline.mem_align": 6,
+      "SwirlPipeline.hail_mem": 4,
+      "MitochondriaPipeline.skip_restore_hardclips": true,
+      "SwirlPipeline.vaf_filter_threshold": 0.005,
+      "SwirlPipeline.max_read_length": 10000,
+      "MitochondriaPipeline.compute_numt_coverage": false,
+      "MitochondriaPipeline.use_haplotype_caller_nucdna": true,
+      "MitochondriaPipeline.haplotype_caller_nucdna_dp_lower_bound": 10,
+      "MitochondriaPipeline.n_cpu": 2,
+      "MitochondriaPipeline.mt_caller": "clairs_to",
+      "MitochondriaPipeline.clair3_model": "r1041_e82_400bps_sup_v520",
+      "MitochondriaPipeline.clairs_platform": "ont_r10_dorado_sup_5khz",
+      "MitochondriaPipeline.min_aligned_length": 6000,
+      "MitochondriaPipeline.min_aligned_fraction": 0.95,
+      "MitochondriaPipeline.max_reads": 4000,
+      "MitochondriaPipeline.tier_thresholds": "0.03,0.05,0.10",
+      "MitochondriaPipeline.f_score_beta": 1,
+      "MitochondriaPipeline.nuc_contamination_estimate": 0.0,
+      "MitochondriaPipeline.m2_extra_args": null,
+      "MitochondriaPipeline.m2_filter_extra_args": null,
+      "MitochondriaPipeline.printreads_extra_args": null,
+      "MitochondriaPipeline.requester_pays_project": null
+    }
+  }
+}
