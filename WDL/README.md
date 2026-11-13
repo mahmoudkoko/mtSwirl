@@ -43,3 +43,13 @@ For DNANexus, we have several recommendations when building input schemas for ba
    3. `stage-common.wgs_aligned_input_bam_or_cram_index`: an array of DNANexus links corresponding to WGS CRAI files
 
 To add these additional fields, we recommend batching the list of all CRAMs/CRAIs into 18 samples (fullMitoPipeline) or 40 samples (fullMitoSamples). Each batch is processed on one machine at a time either serially or in parallel respectively.
+
+## Merging batches from the command line
+
+`scripts/merge_batches.py` repeats the `MergeMitoMultiSampleOutputs` merge (statistics, coverage and VCF calls) for several batches, using `scripts/merge_per_batch.py` for the Hail steps. It reads a tab-separated manifest with one row per sample and the header `batch	sample	vcf	coverage	stats` (paths may be local or `gs://`):
+
+```
+python3 scripts/merge_batches.py --manifest manifest.tsv --output-dir merged/ [--batches batchA batchB]
+```
+
+Each batch is written to `merged/BATCH/` with the same file names as the WDL. Hail requires a Java runtime (JDK 17 was tested).
